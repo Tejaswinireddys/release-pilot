@@ -8,6 +8,8 @@
 
 package release_pilot.guardrails
 
+import rego.v1
+
 default allow := false
 
 allow if count(deny) == 0
