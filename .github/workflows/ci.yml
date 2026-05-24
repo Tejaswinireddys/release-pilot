@@ -11,6 +11,7 @@ env:
   DEMO_APPROVAL_TOKEN: "ci-approval-token"
   OPENAI_API_KEY: "demo-ci-key"
   OPA_VERSION: "v0.70.0"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   test:
