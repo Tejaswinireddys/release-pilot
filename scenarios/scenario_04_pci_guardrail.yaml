@@ -1,0 +1,43 @@
+name: "Scenario 04 — PCI Guardrail Block (Missing PCI Approver)"
+description: >
+  Attempted deployment of ServiceA (PCI-scoped) without a PCI DSS authorized
+  approver on the change record. The Compliance Auditor pre-check evaluates
+  the risk verdict and the OPA policy blocks the deployment before any traffic
+  shifts. No CloudWatch metrics are ever polled.
+  Expected outcome: BLOCKED_BY_OPA at compliance pre-check.
+
+# ── Orchestrator fields ───────────────────────────────────────────────────────
+service_id: servicea
+pr_number: 104
+version: "v3.2.0-hotfix"
+
+deployment:
+  type: canary
+  environment: production
+
+change_record:
+  id: "CHG-5004"
+  status: "Approved"
+  approved_by:
+    - "carol.chen@example.com"
+  pci_approvals: []            # ← Missing PCI-authorized approver — OPA deny triggers
+  off_hours_approved: false
+  executive_approved: false
+  cab_approved: true
+
+freeze:
+  active: false
+
+expected_outcome: BLOCKED_BY_OPA
+expected_violation: "PCI_NO_APPROVAL"
+
+# ── Mock AWS MCP fields ───────────────────────────────────────────────────────
+
+baseline:
+  error_rate: 0.0008
+  p99_ms: 305
+  availability: 0.99994
+  rps: 220
+
+# Empty — deployment is blocked before ECS or CloudWatch are ever called.
+cloudwatch_timeline: []

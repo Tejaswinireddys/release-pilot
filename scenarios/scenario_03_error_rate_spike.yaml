@@ -1,0 +1,88 @@
+name: "Scenario 03 — ServiceA Error Rate Spike → Auto-Rollback"
+description: >
+  Canary deployment of ServiceA. The canary image introduces a regression
+  that causes the error rate to spike above the PCI-tier SLO (0.1%) at
+  step 2 (5% traffic). The SLO Sentinel emits ROLLBACK.
+  Expected outcome: ROLLED_BACK at step 2.
+
+# ── Orchestrator fields ───────────────────────────────────────────────────────
+service_id: servicea
+pr_number: 103
+version: "v3.1.1-rc2"
+
+deployment:
+  type: canary
+  environment: production
+
+change_record:
+  id: "CHG-5003"
+  status: "Approved"
+  approved_by:
+    - "bob.smith@example.com"
+  pci_approvals:
+    - "pci-assessor@example.com"
+  off_hours_approved: false
+  executive_approved: false
+  cab_approved: true
+
+freeze:
+  active: false
+
+expected_outcome: ROLLED_BACK
+expected_rollback_step: 2
+
+# ── Mock AWS MCP fields ───────────────────────────────────────────────────────
+
+baseline:
+  error_rate: 0.0008
+  p99_ms: 305
+  availability: 0.99994
+  rps: 220
+
+# Timeline: healthy at step 1 (1 % canary), then error spike at step 2 (5 %).
+# PCI-tier SLO threshold is error_rate < 0.001. Spike begins at elapsed_seconds=120.
+cloudwatch_timeline:
+  # Step 1 — 1 % canary traffic, stable baseline
+  - elapsed_seconds: 0
+    error_rate: 0.0008
+    p99_ms: 306
+    availability: 0.99994
+    rps: 221
+    canary_error_rate: 0.0009
+    stable_error_rate: 0.0008
+
+  # Step 1 second poll — still within SLO
+  - elapsed_seconds: 60
+    error_rate: 0.0009
+    p99_ms: 312
+    availability: 0.99993
+    rps: 219
+    canary_error_rate: 0.0010
+    stable_error_rate: 0.0008
+
+  # Step 2 — 5 % canary; regression surfaces: canary error rate breaches 0.1 %
+  - elapsed_seconds: 120
+    error_rate: 0.0035
+    p99_ms: 480
+    availability: 0.99960
+    rps: 217
+    canary_error_rate: 0.0580   # 5.8 % — far above PCI-tier 0.1 % threshold
+    stable_error_rate: 0.0008
+
+  # Step 2 second poll — spike worsening; SLO Sentinel should have triggered ROLLBACK
+  - elapsed_seconds: 180
+    error_rate: 0.0068
+    p99_ms: 720
+    availability: 0.99930
+    rps: 213
+    canary_error_rate: 0.0820
+    stable_error_rate: 0.0009
+
+  # Post-rollback — canary weight returns to 0; stable metrics recover
+  - elapsed_seconds: 240
+    error_rate: 0.0009
+    p99_ms: 310
+    availability: 0.99993
+    rps: 220
+    canary_error_rate: 0.0009   # canary removed; metrics normalized
+    stable_error_rate: 0.0009

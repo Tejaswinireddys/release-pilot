@@ -1,0 +1,100 @@
+version: "1"
+
+mcpServers:
+  # ── GitHub MCP (official) ─────────────────────────────────────────────────
+  github_mcp:
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-github"
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+    description: >
+      Official GitHub MCP server. The Risk Analyst uses this to fetch PR diffs,
+      file contents, and commit history. Write operations are denied for all agents.
+    tools:
+      allowed:
+        - get_pull_request
+        - list_pull_request_files
+        - get_pull_request_diff
+        - get_file_contents
+        - list_commits
+        - get_commit
+        - get_check_runs
+        - search_code
+      denied:
+        - create_pull_request
+        - merge_pull_request
+        - push_files
+        - delete_branch
+        - create_release
+        - update_pull_request
+        - create_or_update_file
+
+  # ── Atlassian Rovo MCP (GA Feb 2026) ─────────────────────────────────────
+  atlassian_mcp:
+    command: npx
+    args:
+      - "-y"
+      - "@atlassian/mcp-atlassian"
+    env:
+      ATLASSIAN_API_TOKEN: "${ATLASSIAN_API_TOKEN}"
+      ATLASSIAN_SITE_URL: "${ATLASSIAN_SITE_URL}"
+    description: >
+      Atlassian Rovo MCP server (GA February 2026). The Release Scribe uses this
+      to create Confluence release pages and post Jira comments. Only the Release
+      Scribe is granted write access; all other agents deny all atlassian_mcp tools.
+    tools:
+      allowed:
+        - confluence_create_page
+        - confluence_update_page
+        - confluence_get_page
+        - confluence_search
+        - jira_add_comment
+        - jira_get_issue
+        - jira_search_issues
+        - jira_update_issue_status
+      denied:
+        - confluence_delete_page
+        - jira_delete_issue
+        - jira_create_issue
+        - admin_get_users
+
+  # ── Mock AWS MCP (local FastAPI, demo mode) ───────────────────────────────
+  aws_mcp:
+    command: python
+    args:
+      - "-m"
+      - "uvicorn"
+      - "src.tools.aws_mock_server:app"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+    env:
+      AWS_MOCK_PORT: "8080"
+      DEMO_MODE: "${DEMO_MODE}"
+    description: >
+      Local mock AWS server for ECS and CloudWatch. Provides three metric profiles
+      (healthy, error_spike, latency_spike) selectable via scenario YAML. The
+      Canary Orchestrator calls ECS mutation endpoints; the SLO Sentinel calls
+      CloudWatch read endpoints only. Neither can call the other's endpoints.
+    tools:
+      # Canary Orchestrator tools
+      canary_allowed:
+        - ecs_update_service
+        - ecs_register_task_definition
+        - ecs_describe_service
+        - ecs_rollback
+        - elb_update_listener_rule
+      # SLO Sentinel tools
+      sentinel_allowed:
+        - get_metrics
+        - get_baseline
+        - describe_alarms
+      # Denied for ALL agents that don't need them
+      denied:
+        - iam_create_role
+        - iam_attach_policy
+        - s3_delete_object
+        - ec2_terminate_instance

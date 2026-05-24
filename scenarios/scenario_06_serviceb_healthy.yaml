@@ -1,0 +1,100 @@
+name: "Scenario 06 — ServiceB Healthy Deploy (Non-PCI)"
+description: >
+  Canary deployment of ServiceB (non-PCI, non-SOX notification service).
+  Demonstrates the pipeline running without PCI guardrails — PCI-DSS controls
+  are attested as N/A. All SLOs are healthy.
+  Expected outcome: PROMOTED after 5 canary steps with N/A PCI attestations.
+
+service_id: serviceb
+pr_number: 106
+version: "v4.2.1"
+metrics_profile: healthy
+
+deployment:
+  type: canary
+  environment: production
+
+change_record:
+  id: "CHG-5006"
+  status: "Approved"
+  approved_by:
+    - "dave.kim@example.com"
+  pci_approvals: []            # non-PCI service — no PCI approver needed
+  off_hours_approved: false
+  executive_approved: false
+  cab_approved: false          # non-SOX service — no CAB needed
+
+freeze:
+  active: false
+
+expected_outcome: PROMOTED
+expected_steps: 5
+expected_pci_scope: false
+expected_attestation_pci: "N/A"
+
+# ── Mock AWS MCP fields ───────────────────────────────────────────────────────
+
+# 7-day baseline — non-PCI notification service, fast p99
+baseline:
+  error_rate: 0.0004        # 0.04%
+  p99_ms: 90
+  availability: 0.99998
+  rps: 45
+
+# One entry per SLO Sentinel poll. All points stay within standard-tier SLOs.
+cloudwatch_timeline:
+  - elapsed_seconds: 0
+    error_rate: 0.0004
+    p99_ms: 88
+    availability: 0.99998
+    rps: 45
+    canary_error_rate: 0.0004
+    stable_error_rate: 0.0004
+
+  - elapsed_seconds: 360
+    error_rate: 0.0005
+    p99_ms: 91
+    availability: 0.99997
+    rps: 47
+    canary_error_rate: 0.0005
+    stable_error_rate: 0.0004
+
+  - elapsed_seconds: 720
+    error_rate: 0.0007
+    p99_ms: 89
+    availability: 0.99997
+    rps: 46
+    canary_error_rate: 0.0007
+    stable_error_rate: 0.0004
+
+  - elapsed_seconds: 1080
+    error_rate: 0.0005
+    p99_ms: 92
+    availability: 0.99998
+    rps: 48
+    canary_error_rate: 0.0005
+    stable_error_rate: 0.0004
+
+  - elapsed_seconds: 1440
+    error_rate: 0.0006
+    p99_ms: 90
+    availability: 0.99998
+    rps: 45
+    canary_error_rate: 0.0006
+    stable_error_rate: 0.0005
+
+  - elapsed_seconds: 1800
+    error_rate: 0.0004
+    p99_ms: 87
+    availability: 0.99999
+    rps: 46
+    canary_error_rate: 0.0004
+    stable_error_rate: 0.0005
+
+  - elapsed_seconds: 2160
+    error_rate: 0.0005
+    p99_ms: 88
+    availability: 0.99998
+    rps: 47
+    canary_error_rate: 0.0005
+    stable_error_rate: 0.0004

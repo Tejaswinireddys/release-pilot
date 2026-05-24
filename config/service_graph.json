@@ -1,0 +1,94 @@
+{
+  "version": "2.0",
+  "description": "ServiceA and ServiceB are placeholder names. Swap in real service names via this file.",
+  "services": {
+    "ServiceA-AuthService": {
+      "owner_team": "team-a-core",
+      "pci_scope": true,
+      "file_paths": [
+        "src/servicea/auth/**",
+        "com/example/servicea/auth/**"
+      ],
+      "direct_consumers": ["ServiceA-UI", "ServiceA-PaymentGateway"],
+      "criticality": "high",
+      "slos": {"error_rate_pct": 0.1, "p99_ms": 200}
+    },
+    "ServiceA-SettlementService": {
+      "owner_team": "team-a-core",
+      "pci_scope": true,
+      "file_paths": [
+        "src/servicea/settlement/**",
+        "com/example/servicea/settlement/**"
+      ],
+      "direct_consumers": ["ServiceB-ReconciliationWorker", "ServiceB-AuditLogger"],
+      "criticality": "high",
+      "slos": {"error_rate_pct": 0.1, "p99_ms": 400}
+    },
+    "ServiceA-PaymentGateway": {
+      "owner_team": "team-a-core",
+      "pci_scope": true,
+      "file_paths": [
+        "src/servicea/gateway/**",
+        "com/example/servicea/gateway/**"
+      ],
+      "direct_consumers": ["ServiceA-UI"],
+      "criticality": "high",
+      "slos": {"error_rate_pct": 0.05, "p99_ms": 300}
+    },
+    "ServiceA-AuthorizationService": {
+      "owner_team": "team-a-core",
+      "pci_scope": true,
+      "file_paths": [
+        "src/servicea/authorization/**",
+        "com/example/servicea/authorization/**"
+      ],
+      "direct_consumers": ["ServiceA-SettlementService"],
+      "criticality": "high",
+      "slos": {"error_rate_pct": 0.05, "p99_ms": 150}
+    },
+    "ServiceA-UI": {
+      "owner_team": "team-a-frontend",
+      "pci_scope": true,
+      "file_paths": ["src/servicea/ui/**"],
+      "direct_consumers": [],
+      "criticality": "medium",
+      "slos": {"error_rate_pct": 0.5, "p99_ms": 500}
+    },
+    "ServiceB-ReconciliationWorker": {
+      "owner_team": "team-b-core",
+      "pci_scope": false,
+      "file_paths": ["src/serviceb/reconciliation/**"],
+      "direct_consumers": ["ServiceB-NotificationService", "ServiceB-AuditLogger"],
+      "criticality": "medium",
+      "slos": {"error_rate_pct": 1.0, "p99_ms": 2000}
+    },
+    "ServiceB-TransactionService": {
+      "owner_team": "team-b-core",
+      "pci_scope": false,
+      "file_paths": ["src/serviceb/transaction/**"],
+      "direct_consumers": ["ServiceB-NotificationService"],
+      "criticality": "medium",
+      "slos": {"error_rate_pct": 1.0, "p99_ms": 1500}
+    },
+    "ServiceB-NotificationService": {
+      "owner_team": "team-b-core",
+      "pci_scope": false,
+      "file_paths": ["src/serviceb/notification/**"],
+      "direct_consumers": [],
+      "criticality": "low",
+      "slos": {"error_rate_pct": 2.0, "p99_ms": 3000}
+    },
+    "ServiceB-AuditLogger": {
+      "owner_team": "team-b-core",
+      "pci_scope": false,
+      "file_paths": ["src/serviceb/audit/**"],
+      "direct_consumers": [],
+      "criticality": "low",
+      "slos": {"error_rate_pct": 0.5, "p99_ms": 500}
+    }
+  },
+  "pci_shared_libs": [
+    "com/example/servicea/common/**",
+    "com/example/servicea/crypto/**"
+  ]
+}

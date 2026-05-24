@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:16686/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  opa:
+    image: openpolicyagent/opa:latest
+    command: ["run", "--server", "--addr", ":8181", "/policies/release_guardrails.rego"]
+    volumes:
+      - ./policies:/policies:ro
+    ports:
+      - "8181:8181"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8181/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  aws-mock:
+    build: .
+    command: python src/tools/aws_mock_server.py
+    environment:
+      SCENARIO_FILE: scenarios/scenario_01_healthy_deploy.yaml
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./scenarios:/app/scenarios
+      - ./src:/app/src
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+networks:
+  default:
+    name: release-pilot-net

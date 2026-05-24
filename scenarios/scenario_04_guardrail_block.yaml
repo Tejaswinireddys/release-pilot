@@ -1,0 +1,26 @@
+name: "Scenario 04 — Guardrail Block (Missing Change Record)"
+description: >
+  Attempted deployment of auth-service with a missing / invalid change record.
+  The Compliance Auditor evaluates the OPA policy and finds the change record
+  field is absent. The pipeline is blocked before any traffic shifts.
+  Expected outcome: BLOCKED at the compliance phase.
+
+service_id: auth-service
+version: "v3.2.1"
+
+deployment:
+  type: canary
+  environment: production
+  cluster: release-pilot-cluster
+  container_port: 4000
+
+change_record:
+  id: "NO-RECORD"      # Signals the mock to return a Draft/missing change record
+  approved_by: ""
+  scheduled: ""
+
+metrics_profile: healthy
+
+notifications:
+  teams_channel: "#deploys"
+  jira_project: "PLAT"

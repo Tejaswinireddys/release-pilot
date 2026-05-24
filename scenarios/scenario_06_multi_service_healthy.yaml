@@ -1,0 +1,33 @@
+name: "Scenario 06 — Multi-Service Coordinated Healthy Deploy"
+description: >
+  Coordinated deployment across two services: notification-service and
+  inventory-service. Both are deployed sequentially as part of a single
+  change record. All SLOs remain healthy throughout.
+  Expected outcome: COMPLETE for both services.
+
+# Primary service (orchestrator runs this)
+service_id: notification-service
+version: "v4.1.0"
+
+deployment:
+  type: canary
+  environment: production
+  cluster: release-pilot-cluster
+  container_port: 8080
+  coordinated_services:
+    - service_id: inventory-service
+      version: "v2.5.3"
+      deploy_after_step: 3     # deploy inventory after notification hits 25%
+
+change_record:
+  id: "CHG-4455"
+  approved_by: "carol.chen@example.com"
+  scheduled: "2026-05-22T15:00:00Z"
+
+metrics_profile: healthy
+
+slo_overrides: {}
+
+notifications:
+  teams_channel: "#deploys"
+  jira_project: "PLAT"
