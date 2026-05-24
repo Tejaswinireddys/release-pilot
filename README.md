@@ -31,7 +31,7 @@ The system is built in seven layers:
 | **Knowledge layer** | sqlite-vec RAG index + deployment memory; seeded from `docs/` |
 | **Observability** | OpenTelemetry GenAI spans → Jaeger (OTLP gRPC, port 4317) |
 
-No architecture diagram is checked in to this repository; if you add one, place it at `docs/architecture.png` and it will be picked up by the reference above.
+![Architecture diagram](docs/architecture.png)
 
 ---
 
