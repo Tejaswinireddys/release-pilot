@@ -90,23 +90,17 @@ After the push, on the GitHub repository page:
 
 ---
 
-## Optional: Create a GitHub Actions workflow
+## CI is already configured
 
-To run the test suite on every push, create `.github/workflows/ci.yml`:
+The repository ships `.github/workflows/ci.yml`, which runs the full test suite on every
+push and pull request. It installs OPA automatically so all 71 tests (including OPA policy
+tests) run in CI without any additional setup.
 
-```yaml
-name: CI
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - run: python -m pytest tests/ -v --ignore=tests/test_opa_policies.py
+To see CI status after your push, visit:
+
+```
+https://github.com/<USERNAME>/<REPO>/actions
 ```
 
-(OPA live-server tests are excluded from CI; they require a running OPA instance.)
+No changes to the workflow are needed — the test suite runs clean with the committed
+configuration.

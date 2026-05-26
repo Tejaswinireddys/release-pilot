@@ -48,7 +48,7 @@ The Compliance Auditor runs **twice** in the pipeline:
    raises `PolicyViolationError` and halts the pipeline before any deployment begins.
 
 2. **Attestation** (after SLO Sentinel): Receives the complete pipeline evidence bundle
-   (`RiskVerdict` + `CanaryResult` + `SLOVerdict`) and maps each piece of evidence to specific
+   (`RiskVerdict` + `CanaryResult` + `SentinelVerdict`) and maps each piece of evidence to specific
    PCI-DSS v4.0 and SOX 302/404 controls. Freezes the result as an `AuditPacket` with a
    SHA-256 hash of the entire packet.
 
@@ -71,7 +71,7 @@ at attestation time.
 |-------|------|--------|
 | `risk_verdict` | `RiskVerdict` | Risk Analyst |
 | `canary_result` | `CanaryResult` | Canary Orchestrator |
-| `slo_verdict` | `SLOVerdict` | SLO Sentinel |
+| `sentinel_verdict` | `SentinelVerdict` | SLO Sentinel |
 | `trace_id` | `str` | Orchestrator |
 
 ## Outputs
@@ -92,26 +92,23 @@ at attestation time.
 
 ```json
 {
-  "pr_number": "integer",
+  "release_id": "string",
   "service_id": "string",
+  "pr_number": "integer",
   "pci_scope_touched": "boolean",
-  "sox_scope": "boolean",
-  "risk_verdict": "RiskVerdict",
-  "canary_result": "CanaryResult",
-  "slo_verdict": "SLOVerdict",
-  "attestations": [
+  "pci_controls_engaged": ["string (e.g. PCI-DSS-v4.0-6.3.2)"],
+  "approvals_captured": [
     {
-      "control_id": "string (e.g. PCI-DSS-v4.0-6.3.2)",
-      "framework": "PCI-DSS | SOX",
-      "control_description": "string",
-      "status": "PASS | FAIL | N/A",
-      "evidence": "string (cite specific field from evidence bundle)"
+      "by": "string",
+      "at": "ISO 8601",
+      "via": "string"
     }
   ],
-  "audit_trail_hash": "string (SHA-256 of serialized packet without this field)",
-  "frozen_at": "ISO 8601",
-  "trace_id": "string",
-  "auditor_version": "string"
+  "sox_evidence_complete": "boolean",
+  "auditor_verdict": "RELEASE_APPROVED | RELEASE_BLOCKED | ESCALATE_TO_COMPLIANCE",
+  "blocking_reasons": ["string"],
+  "compliance_narrative": "string",
+  "audit_trail_hash": "string (SHA-256 of serialized packet without this field)"
 }
 ```
 
@@ -130,17 +127,17 @@ security team and recorded in this file's CHANGELOG.
 2. **Frozen output:** The `AuditPacket` is a frozen Pydantic model. After `audit_trail_hash`
    is computed, no field may be mutated.
 3. **SHA-256 chain:** `audit_trail_hash = SHA256(packet.model_dump_json(exclude={"audit_trail_hash"}))`.
-4. **PCI-DSS v4.0 controls to map** (minimum set for PCI-scoped services):
-   - 6.3.2 — Inventory of bespoke and custom software
-   - 6.4.1 — Public-facing web applications protected against attacks
-   - 6.5.1 — Changes to all system components managed per change control
-   - 10.3.1 — Audit logs protected from modification
-5. **SOX controls to map** (for SOX-scoped services):
-   - SOX-302-a — CEO/CFO certification of disclosure controls
-   - SOX-404-ITGC-CC6.1 — Logical access security
-   - SOX-404-ITGC-CC8.1 — Change management controls
-6. **N/A attestation:** Mark `status: N/A` when the control does not apply to the current
-   deployment scope (e.g., PCI controls when `pci_scope_touched = false`).
+4. **PCI-DSS v4.0 controls** (populate `pci_controls_engaged` for PCI-scoped services):
+   - `PCI-DSS-v4.0-6.3.2` — Inventory of bespoke and custom software
+   - `PCI-DSS-v4.0-6.4.1` — Public-facing web applications protected against attacks
+   - `PCI-DSS-v4.0-6.5.1` — Changes to all system components managed per change control
+   - `PCI-DSS-v4.0-10.3.1` — Audit logs protected from modification
+5. **SOX evidence:** Set `sox_evidence_complete = true` only when all three gate checks pass:
+   SOX-302-a (disclosure controls), SOX-404-ITGC-CC6.1 (logical access), SOX-404-ITGC-CC8.1
+   (change management).
+6. **Verdict logic:** Set `auditor_verdict = RELEASE_APPROVED` when `pci_controls_engaged` is
+   complete (or empty for non-PCI) and `sox_evidence_complete = true`. Any gap → `RELEASE_BLOCKED`
+   with `blocking_reasons` populated. Ambiguous evidence → `ESCALATE_TO_COMPLIANCE`.
 
 ## CHANGELOG
 

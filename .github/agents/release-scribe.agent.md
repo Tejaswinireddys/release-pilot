@@ -6,17 +6,15 @@ description: >
   Runs unconditionally — even for rollbacks and blocked deployments.
 version: 0.1.0
 model: gpt-4o
-mcp-servers:
-  - atlassian_mcp
+mcp-servers: []
 
 tools:
   allowed:
-    - atlassian_mcp.confluence_create_page
-    - atlassian_mcp.confluence_update_page
-    - atlassian_mcp.confluence_get_page
-    - atlassian_mcp.jira_add_comment
-    - atlassian_mcp.jira_get_issue
-    - teams.post
+    # Confluence and Jira are called via direct REST API (not MCP) — see config/integrations.py
+    - confluence_rest.create_page      # POST /wiki/api/v2/pages
+    - confluence_rest.update_page      # PUT  /wiki/api/v2/pages/{id}
+    - jira_rest.add_comment            # POST /rest/api/3/issue/{id}/comment
+    - teams.post                       # Microsoft Teams incoming webhook
 
   denied:
     # Harness — no deployment mutations
@@ -41,10 +39,6 @@ tools:
     - memory.read
     - memory.write
     - service_graph.lookup
-    # Atlassian destructive ops
-    - atlassian_mcp.confluence_delete_page
-    - atlassian_mcp.jira_delete_issue
-    - atlassian_mcp.jira_create_issue
 ---
 
 ## Role
@@ -89,9 +83,11 @@ JSON schema of `ReleaseNote`:
 
 ## Scope
 
-**Allowed:** Confluence page create/update, Jira comment, Teams notification.
+**Allowed:** Confluence page create/update via REST API (`INTEGRATION_CONFLUENCE_MODE=live`,
+falls back to local Markdown file when mock or on error). Jira comment via REST API.
+Teams notification via incoming webhook.
 
-**Denied:** All Harness, AWS, GitHub, RAG, memory, and Atlassian destructive operations.
+**Denied:** All Harness, AWS, GitHub, RAG, memory, and destructive operations.
 The Scribe documents; it does not execute.
 
 ## Guardrails

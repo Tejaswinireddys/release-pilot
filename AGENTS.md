@@ -39,6 +39,8 @@ PR merged → Webhook
 ```bash
 pip install -r requirements.txt
 docker-compose up -d        # starts Jaeger + OPA + Mock AWS
+./start_demo.sh             # launches dashboard (http://localhost:9100) + starts all services
+# Or run individually:
 python -m pytest tests/
 python demo_runner.py --scenario 1   # healthy ServiceA deploy
 python demo_runner.py --scenario 3   # error-rate spike → rollback
@@ -66,9 +68,9 @@ python demo_runner.py --scenario 6   # ServiceB healthy deploy
 |-------|--------|--------------|-----------------|
 | risk-analyst | `src/agents/risk_analyst.py` | `RiskVerdict` | github_mcp + rag + memory + service_graph only |
 | canary-orchestrator | `src/agents/canary_orchestrator.py` | `CanaryResult` | harness + aws_mcp ECS only |
-| slo-sentinel | `src/agents/slo_sentinel.py` | `SLOVerdict` | aws_mcp metrics only |
+| slo-sentinel | `src/agents/slo_sentinel.py` | `SentinelVerdict` | aws_mcp metrics only |
 | compliance-auditor | `src/agents/compliance_auditor.py` | `AuditPacket` | NO external tools |
-| release-scribe | `src/agents/release_scribe.py` | `ReleaseNote` | atlassian_mcp + teams only |
+| release-scribe | `src/agents/release_scribe.py` | `ReleaseNote` | confluence_rest + jira_rest + teams |
 
 ---
 
@@ -76,11 +78,14 @@ python demo_runner.py --scenario 6   # ServiceB healthy deploy
 
 | Server | Package | Base URL |
 |--------|---------|----------|
-| GitHub MCP | `npx @modelcontextprotocol/server-github` | stdio |
-| Atlassian Rovo MCP | `npx @atlassian/mcp-atlassian` (GA Feb 2026) | stdio |
 | Mock AWS MCP | local FastAPI (`src/tools/aws_mock_server.py`) | `http://localhost:8080` |
 
 Configured in `mcp-config.yaml`.
+
+**GitHub and Confluence** are accessed via direct REST API (not npx MCP servers):
+- Risk Analyst calls the GitHub REST API when `INTEGRATION_GITHUB_MODE=live`
+- Release Scribe calls the Confluence Cloud REST API when `INTEGRATION_CONFLUENCE_MODE=live`
+- Integration mode is controlled by `config/integrations.py`; default is `mock` so the project runs without credentials
 
 ---
 
@@ -113,10 +118,11 @@ Configured in `mcp-config.yaml`.
 
 ## Adoption Guide
 
-Any team can adopt Release Pilot in 5 steps:
+Any team can adopt Release Pilot in 6 steps:
 
 1. **Copy the agent scaffold** — copy `AGENTS.md` (symlink `CLAUDE.md → AGENTS.md`),
-   `.github/agents/*.agent.md` (all 5 files), and `mcp-config.yaml` into your repo.
+   `.github/agents/*.agent.md` (all 5 files), `mcp-config.yaml`, and `config/integrations.py`
+   into your repo.
 
 2. **Edit AGENTS.md** — update service names in the "Agent Roster" table, CDE file
    path patterns in "Safety Rules" (the three PCI scope signals), and the Jira project
@@ -127,18 +133,29 @@ Any team can adopt Release Pilot in 5 steps:
    `direct_consumers`; update `pci_shared_libs` to match your shared-library
    package paths so the PCI scope detector covers cross-service imports.
 
-4. **Re-index your service docs** — point the RAG index at your documentation
+4. **Configure credentials** — copy `.env.example` to `.env` and fill in:
+   - `OPENAI_API_KEY` (required for Risk Analyst and Release Scribe)
+   - GitHub and Confluence credentials for live integrations (optional — mock works without them)
+
+   Verify live credentials before enabling:
+   ```bash
+   source .env && python3 scripts/check_github.py --pr 1
+   source .env && python3 scripts/check_confluence.py
+   ```
+
+5. **Re-index your service docs** — point the RAG index at your documentation
    directory so the Risk Analyst has context for historical incidents and runbooks:
 
    ```bash
    python -c "from src.knowledge.rag_index import RAGIndex; RAGIndex().build_from_directory('./docs')"
    ```
 
-5. **Run the demo against your service** — verify the end-to-end pipeline with
+6. **Run the demo against your service** — verify the end-to-end pipeline with
    one of your own scenario YAMLs or the bundled scenarios:
 
    ```bash
-   python demo_runner.py --scenario 1
+   ./start_demo.sh
+   # Open http://localhost:9100 and click "Run Scenario"
    ```
 
 No application code changes are needed. All agent behaviour is driven by the

@@ -65,32 +65,35 @@ JSON schema of `RiskVerdict`:
 
 ```json
 {
-  "service_id": "string",
-  "pr_number": "integer",
-  "risk_level": "LOW | MEDIUM | HIGH | CRITICAL",
-  "risk_score": "integer (0–100)",
+  "risk_level": "LOW | MEDIUM | HIGH",
+  "score": "integer (0–100)",
+  "rationale": "string",
+  "blast_radius": {
+    "service": "string",
+    "direct_consumers": ["string"],
+    "transitive_services": "integer"
+  },
   "pci_scope_touched": "boolean",
-  "pci_signals": ["string"],
-  "signals": [
-    {
-      "signal_type": "string",
-      "description": "string",
-      "severity": "INFO | WARN | HIGH | CRITICAL",
-      "evidence": "string"
-    }
-  ],
-  "recommendation": "PROCEED | PROCEED_WITH_CAUTION | REQUIRE_APPROVAL | BLOCK",
-  "rag_context_used": ["doc_id"],
-  "trace_id": "string",
-  "generated_at": "ISO 8601",
-  "model_used": "string"
+  "pci_scope_reason": "string",
+  "recommended_strategy": {
+    "canary_pct": "integer",
+    "bake_minutes": "integer",
+    "auto_promote": "boolean"
+  },
+  "guardrails_triggered": ["string"],
+  "historical_references": ["string"],
+  "feature_context": "string",
+  "feature_signals": "object (diff, diffusion, criticality, expertise sub-features)",
+  "injection_attempts_detected": "integer",
+  "confidence": "float (0.0–1.0)"
 }
 ```
 
 ## Scope
 
-**Allowed:** Read the PR diff and file contents via GitHub MCP. Query the RAG index. Read and
-write agent memory for the target service. Look up the service in `service_graph.json`.
+**Allowed:** Fetch PR diff and file list via GitHub REST API (when `INTEGRATION_GITHUB_MODE=live`)
+or fixture diff (mock mode). Query the RAG index. Read and write agent memory for the target
+service. Look up the service in `service_graph.json`.
 
 **Denied:** All Harness, AWS, Atlassian, and Teams tools. This agent never mutates infrastructure.
 
@@ -100,13 +103,16 @@ write agent memory for the target service. Look up the service in `service_graph
    When uncertain (e.g., ambiguous import paths), also default to `true`. Do not guess `false`.
 2. **Structured output only:** The final response MUST be a JSON code block conforming to
    `RiskVerdict`. No prose is permitted outside the code block.
-3. **Redactor pre-check:** The Redactor strips card numbers, SSNs, tokens, and API keys from
+3. **Score calibration:** `score` (0–100) drives canary strategy — `score ≥ 70` maps to HIGH
+   risk_level; `score ≥ 40` maps to MEDIUM; below 40 is LOW. `confidence` (0.0–1.0) reflects
+   how much diff + RAG evidence was available; low confidence escalates rather than blocks.
+4. **Redactor pre-check:** The Redactor strips card numbers, SSNs, tokens, and API keys from
    the diff before this agent sees it. Do not attempt to decode redacted placeholders.
-4. **Sanitizer pre-check:** The diff body has been sanitizer-cleaned before ingestion. Prompt
+5. **Sanitizer pre-check:** The diff body has been sanitizer-cleaned before ingestion. Prompt
    injection attempts in commit messages or diff hunks will be stripped.
-5. **Memory scope:** `memory.write` for this service is scoped to `risk_analyst:{service_id}`.
+6. **Memory scope:** `memory.write` for this service is scoped to `risk_analyst:{service_id}`.
    Do not write to memory keys belonging to other agents or services.
-6. **OPA gate:** Before emitting `recommendation: PROCEED`, the orchestrator will run OPA.
+7. **OPA gate:** Before emitting `recommended_strategy`, the orchestrator will run OPA.
    This agent does not call OPA directly.
 
 ## CHANGELOG

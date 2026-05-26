@@ -47,7 +47,7 @@ tools:
 
 The SLO Sentinel is invoked by the orchestrator once per canary step and continuously during
 the promotion soak period. It fetches live metrics and a stable baseline, then applies the
-service's SLO thresholds to emit an explainable `SLOVerdict`. The verdict drives whether the
+service's SLO thresholds to emit an explainable `SentinelVerdict`. The verdict drives whether the
 canary orchestrator advances, holds, or rolls back.
 
 ## Inputs
@@ -63,28 +63,29 @@ canary orchestrator advances, holds, or rolls back.
 
 ## Outputs
 
-JSON schema of `SLOVerdict`:
+JSON schema of `SentinelVerdict`:
 
 ```json
 {
-  "service_id": "string",
-  "deployment_id": "string",
-  "decision": "PROMOTE | ROLLBACK | ESCALATE",
-  "reason": "string (human-readable explanation)",
-  "error_rate": "float",
-  "p99_latency_ms": "float",
-  "availability": "float",
-  "baseline_error_rate": "float",
-  "baseline_p99_ms": "float",
-  "canary_regression": "boolean",
-  "slo_thresholds": {
-    "max_error_rate": "float",
-    "max_p99_latency_ms": "integer",
-    "min_availability": "float"
+  "verdict": "PROMOTE | ROLLBACK | ESCALATE",
+  "confidence": "float (0.0–1.0)",
+  "observed": {
+    "error_rate": "float",
+    "p99_latency_ms": "float",
+    "availability": "float"
   },
-  "threshold_breaches": ["string"],
-  "trace_id": "string",
-  "evaluated_at": "ISO 8601"
+  "baseline": {
+    "error_rate": "float",
+    "p99_latency_ms": "float",
+    "availability": "float"
+  },
+  "deviation_std": {
+    "error_rate": "float",
+    "p99_latency_ms": "float"
+  },
+  "reasoning": "string (human-readable explanation citing specific metrics and thresholds)",
+  "intervals_checked": "integer",
+  "anomaly_detected_at_t_seconds": "integer | null"
 }
 ```
 
@@ -99,16 +100,16 @@ This agent is a read-only observer. It signals; it does not act.
 ## Guardrails
 
 1. **Fail-safe default:** If `get_metrics` returns an error or unreachable, emit `ROLLBACK`.
-2. **Canary regression rule:** If `canary_error_rate > 2 × baseline_error_rate`, emit `ROLLBACK`
+2. **Canary regression rule:** If `observed.error_rate > 2 × baseline.error_rate`, emit `ROLLBACK`
    even if both are below the absolute SLO threshold.
 3. **Zero-RPS silence rule:** If `rps == 0` and `canary traffic_pct > 0`, emit `ROLLBACK` —
    the canary may be silently failing to receive traffic.
 4. **ESCALATE path:** Emit `ESCALATE` only when metrics are degraded but not yet at rollback
    threshold AND the degradation pattern is ambiguous (e.g., intermittent spikes). Include
-   `reason` with the specific ambiguity.
-5. **Explainability required:** `reason` must cite the specific metric value, threshold, and
+   `reasoning` with the specific ambiguity.
+5. **Explainability required:** `reasoning` must cite the specific metric value, threshold, and
    whether it was a canary regression or absolute breach. No vague language.
-6. **Structured output only:** Emit `SLOVerdict` JSON. No prose.
+6. **Structured output only:** Emit `SentinelVerdict` JSON. No prose.
 
 ## CHANGELOG
 

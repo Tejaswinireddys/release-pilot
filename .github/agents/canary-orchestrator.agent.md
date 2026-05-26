@@ -101,8 +101,8 @@ This agent is purely an execution engine — it does not make observations or wr
    called with current step + service tier. A deny aborts the canary and triggers rollback.
 2. **Rollback signal is authoritative:** If `rollback_signal = true` is received at any step,
    immediately call `harness.rollback` and `aws_mcp.ecs_rollback`. Do not advance.
-3. **Soak times scale with risk:** For `risk_score ≥ 60`, multiply each step's soak duration
-   by `1 + (risk_score - 60) / 40`. This doubles soak time at CRITICAL.
+3. **Soak times scale with risk:** For `score ≥ 60`, multiply each step's soak duration
+   by `1 + (score - 60) / 40`. This doubles soak time at maximum score (100).
 4. **No metric reads:** This agent does not call CloudWatch. SLO decisions come from the
    SLO Sentinel via the orchestrator; the canary orchestrator only acts on the signal.
 5. **Task definition ARN in every step:** Every `CanaryStep` must include the full ARN.
