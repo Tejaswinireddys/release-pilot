@@ -253,6 +253,88 @@ Everything else (OPA policy evaluation, PCI redaction, audit packet generation, 
 
 ---
 
+## Connecting Real Data
+
+A single env flag controls whether each integration calls a real external API or stays on its local mock. The default for every integration is `mock` — the project runs without any credentials in that state.
+
+### Integration summary
+
+| Integration | Mode flag | Default | Scope |
+|-------------|-----------|---------|-------|
+| **Confluence** | `INTEGRATION_CONFLUENCE_MODE` | `mock` | Release Scribe publishes real pages |
+| **GitHub** | `INTEGRATION_GITHUB_MODE` | `mock` | Risk Analyst fetches real PR diffs |
+| **AWS (CloudWatch / ECS)** | — | mock only | Mock by design — real infra out of scope |
+| **Harness** | — | mock only | Mock by design — real infra out of scope |
+
+AWS and Harness are permanently mocked. This is a deliberate design choice: Release Pilot is a safety and compliance layer, not a deployment executor. Connecting it to real AWS or Harness would require infrastructure access that varies per team.
+
+### Enable real Confluence publishing
+
+**What you need:**
+- An Atlassian Cloud account with Confluence
+- An API token from `https://id.atlassian.com/manage-profile/security/api-tokens`
+- The space key for an existing Confluence space (visible in the space URL)
+- Optionally, the numeric page ID of a parent page (from the page URL: `/pages/<ID>`)
+
+**Set these env vars** (in `.env` or your shell):
+
+```bash
+INTEGRATION_CONFLUENCE_MODE=live
+ATLASSIAN_SITE_URL=https://your-org.atlassian.net
+ATLASSIAN_EMAIL=you@example.com
+ATLASSIAN_API_TOKEN=your-api-token
+CONFLUENCE_SPACE_KEY=ENG
+CONFLUENCE_PARENT_PAGE_ID=123456   # optional
+```
+
+**Verify credentials** before running a full pipeline:
+
+```bash
+source .env && python3 scripts/check_confluence.py
+```
+
+If successful, it prints the URL of a test page it created. Delete that page afterwards.
+
+**Failure behaviour:** if the Confluence API call fails for any reason (auth, network, rate limit), Release Pilot logs a warning and falls back to writing the release page as a local Markdown file in `/tmp/release_pilot_pages/`. The pipeline never crashes.
+
+### Enable real GitHub PR diffs
+
+**What you need:**
+- A GitHub personal access token with `pull_requests:read` and `contents:read` permissions
+  - Fine-grained: `https://github.com/settings/tokens?type=beta`
+  - Classic: `https://github.com/settings/tokens` (select `repo` scope)
+- The repository in `owner/repo` format
+
+**Set these env vars:**
+
+```bash
+INTEGRATION_GITHUB_MODE=live
+GITHUB_TOKEN=ghp_your-token
+GITHUB_REPO=owner/repo
+```
+
+**Verify credentials** with an actual PR number from that repository:
+
+```bash
+source .env && python3 scripts/check_github.py --pr 42
+```
+
+This prints the PR title, author, changed files, and diff size without running the full pipeline.
+
+**Failure behaviour:** if the GitHub API call fails (auth, network, non-existent PR), the Risk Analyst logs a warning and falls back to the fixture diff (a synthetic PCI-touching diff that exercises all safety rules). The pipeline continues.
+
+### config/integrations.py — single source of truth
+
+All agents import mode flags from `config/integrations.py` rather than reading `os.environ` directly. This keeps the flag names defined in one place:
+
+```python
+from config.integrations import confluence_is_live, github_is_live
+```
+
+To override in tests, set `os.environ["INTEGRATION_CONFLUENCE_MODE"] = "live"` before importing the agent.
+
+---
+
 ## Testing
 
 ```bash

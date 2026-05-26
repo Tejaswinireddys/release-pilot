@@ -1,6 +1,6 @@
 # Release Pilot — End-to-End Status Report
 
-Generated: 2026-05-23
+Generated: 2026-05-25
 
 ---
 
@@ -101,23 +101,41 @@ No PII/PAN leaks observed in any error path. Redactor runs before every LLM call
 
 ## Step 6 — Component Status Table
 
+### External integrations
+
+| Integration | Status | Mode flag | Notes |
+|-------------|--------|-----------|-------|
+| **GitHub PR diff** | LIVE-CAPABLE | `INTEGRATION_GITHUB_MODE=live` | Fetches real diff + file list from GitHub REST API; falls back to fixture diff on failure |
+| **Confluence pages** | LIVE-CAPABLE | `INTEGRATION_CONFLUENCE_MODE=live` | Publishes via Confluence Cloud REST API v2; falls back to local Markdown on failure |
+| **AWS (CloudWatch / ECS)** | MOCK-BY-DESIGN | — | Real deployment infrastructure is intentionally out of scope; mock serves scenario YAML metrics |
+| **Harness deploy** | MOCK-BY-DESIGN | — | Real deployment infrastructure is intentionally out of scope; deterministic mock responses |
+
+To verify credentials before running a pipeline:
+```bash
+source .env && python3 scripts/check_confluence.py
+source .env && python3 scripts/check_github.py --pr 42
+```
+
+### All components
+
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Risk Analyst** | NEEDS-LIVE-CREDENTIALS | Requires `OPENAI_API_KEY`; synthetic diff fallback works for PR fetch |
+| **Risk Analyst** | NEEDS-LIVE-CREDENTIALS | Requires `OPENAI_API_KEY`; GitHub live diff: set `INTEGRATION_GITHUB_MODE=live` + `GITHUB_TOKEN` + `GITHUB_REPO` |
 | **Canary Orchestrator** | WORKING-WITH-MOCKS | Harness in demo mode; OPA embedded; no external creds needed |
 | **SLO Sentinel** | WORKING-WITH-MOCKS | Needs mock AWS server running (`docker-compose up -d aws-mock`) |
 | **Compliance Auditor** | WORKING | Zero external tools; OPA embedded; all tests pass |
-| **Release Scribe** | NEEDS-LIVE-CREDENTIALS | Requires `OPENAI_API_KEY`; Confluence publish needs `ATLASSIAN_API_TOKEN` |
+| **Release Scribe** | NEEDS-LIVE-CREDENTIALS | Requires `OPENAI_API_KEY`; Confluence live: set `INTEGRATION_CONFLUENCE_MODE=live` + Atlassian vars |
 | **OPA Policy Engine (embedded)** | WORKING | Evaluates `release_guardrails.rego` in-process; no server needed |
 | **OPA Policy Engine (server)** | NEEDS-LIVE-CREDENTIALS | Requires OPA server at `OPA_URL`; 8 tests skipped without it |
 | **Mock AWS Server** | WORKING | Starts cleanly; serves timeline metrics from scenario YAML |
 | **PCI/PII Redactor** | WORKING | Luhn-validated PAN detection; CVV, email, CDE class redaction |
 | **Prompt Injection Sanitizer** | WORKING | Pattern-based; all sanitizer tests pass |
 | **OpenTelemetry (OTLP)** | WORKING-WITH-MOCKS | Exports fail silently when Jaeger absent; `trace_id` propagated correctly |
-| **GitHub MCP** | NEEDS-LIVE-CREDENTIALS | Falls back to synthetic diff; real PR diff needs `GITHUB_TOKEN` |
-| **Atlassian MCP** | NEEDS-LIVE-CREDENTIALS | Confluence publishing needs `ATLASSIAN_API_TOKEN` + `ATLASSIAN_SITE_URL` |
+| **GitHub integration** | LIVE-CAPABLE | `INTEGRATION_GITHUB_MODE=live`; fails gracefully to fixture diff |
+| **Confluence integration** | LIVE-CAPABLE | `INTEGRATION_CONFLUENCE_MODE=live`; fails gracefully to local Markdown |
 | **Teams Notification** | NEEDS-LIVE-CREDENTIALS | Requires `TEAMS_WEBHOOK_URL`; skipped gracefully when absent |
-| **Harness (demo mode)** | WORKING | No credentials needed; deterministic mock responses |
+| **Harness (demo mode)** | WORKING | Mock by design; no credentials needed; deterministic responses |
+| **Web Dashboard** | WORKING | FastAPI on port 9100; real-time WebSocket event stream |
 | **Demo Runner CLI** | WORKING-WITH-MOCKS | `demo_runner.py` orchestration correct; blocked at LLM call without `OPENAI_API_KEY` |
 | **Test Suite** | WORKING | 63/71 pass; 8 skipped (OPA live mode) |
 | **Docker Compose** | WORKING-WITH-MOCKS | `jaeger`, `opa`, `aws-mock` services defined; requires Docker daemon |

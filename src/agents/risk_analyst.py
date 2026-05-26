@@ -29,9 +29,11 @@ import re
 import time
 from typing import Any, Literal
 
+import httpx
 from openai import APIConnectionError, OpenAI, RateLimitError
 from pydantic import BaseModel, ConfigDict
 
+from config.integrations import github_is_live
 from src.knowledge.memory_store import DeploymentMemory
 from src.knowledge.rag_index import RAGIndex, RAGResult
 from src.knowledge.service_graph import ServiceGraph
@@ -481,10 +483,24 @@ class RiskAnalyst:
         )
 
     def _github_mcp_fetch(self, pr_number: int) -> tuple[str, list[str]]:
-        """Call GitHub MCP REST endpoint or return synthetic demo diff."""
+        """Fetch PR diff: real GitHub API, GitHub MCP, or synthetic demo diff.
+
+        Priority:
+          1. INTEGRATION_GITHUB_MODE=live  → real GitHub REST API
+          2. GITHUB_MCP_URL set            → legacy GitHub MCP endpoint
+          3. fallback                      → synthetic PCI-touching demo diff
+        """
+        if github_is_live():
+            result = self._github_live_fetch(pr_number)
+            if result is not None:
+                return result
+            log.warning(
+                "github.live.fetch_failed pr=%d — falling back to fixture diff",
+                pr_number,
+            )
+
         mcp_url = os.getenv("GITHUB_MCP_URL")
         if mcp_url:
-            import httpx
             resp = httpx.get(f"{mcp_url}/pulls/{pr_number}/diff", timeout=5.0)
             resp.raise_for_status()
             data = resp.json()
@@ -499,6 +515,77 @@ class RiskAnalyst:
             "+        raise ValueError('invalid PAN')\n"
             "+    validate_cvv(card_token, cvv)\n"
         ), ["payment/processor.py"]
+
+    def _github_live_fetch(self, pr_number: int) -> tuple[str, list[str]] | None:
+        """Call the real GitHub REST API to fetch a PR diff and changed-file list.
+
+        Required env vars:
+            GITHUB_TOKEN — personal access token or fine-grained token with
+                           contents:read and pull_requests:read permissions
+            GITHUB_REPO  — owner/repo, e.g. "acme-corp/payment-service"
+
+        Returns (diff_text, file_paths) on success, None on any failure.
+        The caller logs a warning and falls back to the fixture diff on None.
+        """
+        token = os.getenv("GITHUB_TOKEN", "").strip()
+        repo = os.getenv("GITHUB_REPO", "").strip()
+
+        if not token or not repo:
+            log.warning(
+                "github.live.missing_config — GITHUB_TOKEN and GITHUB_REPO are required "
+                "when INTEGRATION_GITHUB_MODE=live"
+            )
+            return None
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+        try:
+            resp = httpx.get(
+                f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files",
+                headers=headers,
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            files: list[dict] = resp.json()
+
+            file_paths = [f["filename"] for f in files]
+
+            # Reconstruct unified diff from per-file patch fields
+            diff_parts: list[str] = []
+            for f in files:
+                patch = f.get("patch", "")
+                if patch:
+                    diff_parts.append(
+                        f"diff --git a/{f['filename']} b/{f['filename']}\n"
+                        f"--- a/{f['filename']}\n"
+                        f"+++ b/{f['filename']}\n"
+                        f"{patch}\n"
+                    )
+
+            diff = (
+                "\n".join(diff_parts)
+                or f"# PR #{pr_number} in {repo} — no patch content (binary or empty files)"
+            )
+
+            log.info(
+                "github.live.fetched pr=%d repo=%s files=%d diff_bytes=%d",
+                pr_number, repo, len(file_paths), len(diff),
+            )
+            return diff, file_paths
+
+        except httpx.HTTPStatusError as exc:
+            log.warning(
+                "github.live.fetch_failed status=%d body=%s",
+                exc.response.status_code, exc.response.text[:200],
+            )
+            return None
+        except Exception as exc:
+            log.warning("github.live.fetch_failed error=%s", exc)
+            return None
 
     # ── Step 10: LLM call ─────────────────────────────────────────────────────
 

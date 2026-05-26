@@ -37,6 +37,7 @@ Publish rules (deterministic):
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -51,6 +52,7 @@ import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
+from config.integrations import confluence_is_live
 from src.agents.compliance_auditor import A2AMessage, AuditPacket
 from src.opa_client import OPAClient, PolicyViolationError
 from src.redactor import PCIRedactor
@@ -635,17 +637,27 @@ class ReleaseScribe:
     # ── Confluence MCP + Teams ────────────────────────────────────────────────
 
     async def _publish_to_confluence(self, page: ReleasePage) -> str | None:
-        """Call Atlassian Rovo MCP to create the Confluence page.
+        """Route to real Confluence REST API or mock, depending on INTEGRATION_CONFLUENCE_MODE.
 
-        Returns confluence_url on success, None if MCP is unreachable.
+        Returns confluence_url on success, None on failure (caller falls back to local MD).
         """
-        body = self._render_to_confluence_storage(page)
+        if confluence_is_live():
+            url = await self._publish_confluence_live(page)
+            if url is None:
+                log.warning(
+                    "confluence.live.failed release_id=%s — falling back to local MD",
+                    page.release_id,
+                )
+            return url
 
+        # ── mock path ─────────────────────────────────────────────────────────
         if self._demo:
             mock_id = f"mock-page-{uuid.uuid4().hex[:8]}"
             log.info("publish.confluence.mock page_id=%s title=%s", mock_id, page.page_title)
             return f"https://confluence.example.com/wiki/spaces/RELEASE/pages/{mock_id}"
 
+        # Legacy Atlassian Rovo MCP path (non-demo, non-live)
+        body = self._render_to_confluence_storage(page)
         try:
             resp = await self._http.post(
                 "/atlassian_mcp/create_page",
@@ -658,10 +670,111 @@ class ReleaseScribe:
             resp.raise_for_status()
             data = resp.json()
             page_id = data.get("page_id", "")
-            return data.get("url") or f"https://confluence.example.com/wiki/spaces/RELEASE/pages/{page_id}"
+            return (
+                data.get("url")
+                or f"https://confluence.example.com/wiki/spaces/RELEASE/pages/{page_id}"
+            )
         except (httpx.HTTPError, httpx.ConnectError, Exception) as exc:
             log.warning("confluence.mcp_unreachable error=%s", exc)
             return None
+
+    async def _publish_confluence_live(self, page: ReleasePage) -> str | None:
+        """Call the real Confluence Cloud REST API (v2) to create a page.
+
+        Required env vars:
+            ATLASSIAN_SITE_URL   — e.g. https://your-org.atlassian.net
+            ATLASSIAN_EMAIL      — Atlassian account email
+            ATLASSIAN_API_TOKEN  — API token from id.atlassian.com/manage-profile/security
+            CONFLUENCE_SPACE_KEY — target space key, e.g. ENG
+            CONFLUENCE_PARENT_PAGE_ID — (optional) parent page numeric ID
+
+        Returns the Confluence page URL on success, None on any failure.
+        """
+        site = os.getenv("ATLASSIAN_SITE_URL", "").rstrip("/")
+        email = os.getenv("ATLASSIAN_EMAIL", "")
+        token = os.getenv("ATLASSIAN_API_TOKEN", "")
+        space_key = os.getenv("CONFLUENCE_SPACE_KEY", "")
+        parent_id = os.getenv("CONFLUENCE_PARENT_PAGE_ID", "").strip()
+
+        if not all([site, email, token, space_key]):
+            log.warning(
+                "confluence.live.missing_config — need ATLASSIAN_SITE_URL, "
+                "ATLASSIAN_EMAIL, ATLASSIAN_API_TOKEN, CONFLUENCE_SPACE_KEY"
+            )
+            return None
+
+        creds = base64.b64encode(f"{email}:{token}".encode()).decode()
+        headers = {
+            "Authorization": f"Basic {creds}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        base = f"{site}/wiki/api/v2"
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            # Step 1: resolve space key → numeric space ID
+            try:
+                r = await client.get(
+                    f"{base}/spaces",
+                    params={"keys": space_key, "limit": 1},
+                    headers=headers,
+                )
+                r.raise_for_status()
+                results = r.json().get("results", [])
+                if not results:
+                    log.warning(
+                        "confluence.live.space_not_found key=%s — "
+                        "verify CONFLUENCE_SPACE_KEY and that the token has read access",
+                        space_key,
+                    )
+                    return None
+                space_id = str(results[0]["id"])
+            except httpx.HTTPStatusError as exc:
+                log.warning(
+                    "confluence.live.space_lookup_failed status=%d body=%s",
+                    exc.response.status_code, exc.response.text[:200],
+                )
+                return None
+            except Exception as exc:
+                log.warning("confluence.live.space_lookup_failed error=%s", exc)
+                return None
+
+            # Step 2: create the page
+            payload: dict[str, Any] = {
+                "spaceId": space_id,
+                "status": "current",
+                "title": page.page_title,
+                "body": {
+                    "representation": "storage",
+                    "value": self._render_to_confluence_storage(page),
+                },
+            }
+            if parent_id:
+                payload["parentId"] = parent_id
+
+            try:
+                r = await client.post(f"{base}/pages", json=payload, headers=headers)
+                r.raise_for_status()
+                data = r.json()
+                page_id = data.get("id", "")
+                webui = data.get("_links", {}).get(
+                    "webui", f"/spaces/{space_key}/pages/{page_id}"
+                )
+                url = f"{site}/wiki{webui}" if not webui.startswith("http") else webui
+                log.info(
+                    "confluence.live.published page_id=%s url=%s title=%s",
+                    page_id, url, page.page_title,
+                )
+                return url
+            except httpx.HTTPStatusError as exc:
+                log.warning(
+                    "confluence.live.create_failed status=%d body=%s",
+                    exc.response.status_code, exc.response.text[:300],
+                )
+                return None
+            except Exception as exc:
+                log.warning("confluence.live.create_failed error=%s", exc)
+                return None
 
     async def _notify_teams(self, page: ReleasePage) -> None:
         """Send Teams card after successful publish."""
