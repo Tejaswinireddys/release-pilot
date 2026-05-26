@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Release Pilot</title>
+  <style>
+    :root {
+      --bg:        #0f172a;
+      --surface:   #1e293b;
+      --surface2:  #273448;
+      --border:    #334155;
+      --text:      #e2e8f0;
+      --dim:       #94a3b8;
+      --indigo:    #6366f1;
+      --indigo-lo: rgba(99,102,241,0.18);
+      --green:     #22c55e;
+      --green-lo:  rgba(34,197,94,0.15);
+      --red:       #ef4444;
+      --red-lo:    rgba(239,68,68,0.18);
+      --yellow:    #f59e0b;
+      --yellow-lo: rgba(245,158,11,0.18);
+      --teal:      #14b8a6;
+      --teal-lo:   rgba(20,184,166,0.15);
+      --violet:    #a855f7;
+      --violet-lo: rgba(168,85,247,0.18);
+      --cyan:      #06b6d4;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--indigo);
+      letter-spacing: -0.3px;
+      white-space: nowrap;
+    }
+    header h1 span { color: var(--text); }
+    #headerScenario {
+      flex: 1;
+      color: var(--dim);
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #headerTraceId {
+      font-size: 11px;
+      color: var(--dim);
+      font-family: monospace;
+      white-space: nowrap;
+    }
+    .pill {
+      padding: 3px 12px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .pill-idle     { background: var(--surface2); color: var(--dim); }
+    .pill-running  { background: var(--indigo-lo); color: var(--indigo); border: 1px solid var(--indigo); }
+    .pill-blocked  { background: var(--red-lo);    color: var(--red);    border: 1px solid var(--red); }
+    .pill-rollback { background: var(--yellow-lo); color: var(--yellow); border: 1px solid var(--yellow); }
+    .pill-complete { background: var(--green-lo);  color: var(--green);  border: 1px solid var(--green); }
+    .pill-failed   { background: var(--red-lo);    color: var(--red);    border: 1px solid var(--red); }
+
+    /* ── Controls ───────────────────────────────────────── */
+    .controls {
+      padding: 12px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .scenario-label {
+      font-size: 12px;
+      color: var(--dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .scenario-group {
+      display: flex;
+      gap: 6px;
+    }
+    .scenario-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--dim);
+      padding: 5px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.15s;
+    }
+    .scenario-btn:hover { border-color: var(--indigo); color: var(--indigo); }
+    .scenario-btn.active {
+      background: var(--indigo-lo);
+      border-color: var(--indigo);
+      color: var(--indigo);
+    }
+    .scenario-desc {
+      font-size: 12px;
+      color: var(--dim);
+      flex: 1;
+    }
+    .btn-start {
+      background: var(--indigo);
+      border: none;
+      color: #fff;
+      padding: 7px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    .btn-start:hover { opacity: 0.88; }
+    .btn-start:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-approve {
+      background: var(--green);
+      border: none;
+      color: #fff;
+      padding: 7px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.15s;
+      white-space: nowrap;
+      display: none;
+    }
+    .btn-approve.visible { display: block; animation: pulse-approve 1.5s ease infinite; }
+    .btn-approve:hover { opacity: 0.88; }
+    @keyframes pulse-approve {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+      50% { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+    }
+
+    /* ── Safety Strip ───────────────────────────────────── */
+    .safety-strip {
+      padding: 8px 24px;
+      background: #0c1523;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .safety-label {
+      font-size: 11px;
+      color: var(--dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-right: 4px;
+    }
+    .safety-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--dim);
+      transition: all 0.2s;
+    }
+    .safety-chip .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--dim);
+      transition: background 0.2s;
+    }
+    .safety-chip.active {
+      border-color: var(--red);
+      background: var(--red-lo);
+      color: var(--red);
+    }
+    .safety-chip.active .dot { background: var(--red); }
+    .safety-chip.opa-allow {
+      border-color: var(--green);
+      background: var(--green-lo);
+      color: var(--green);
+    }
+    .safety-chip.opa-allow .dot { background: var(--green); }
+
+    /* ── Agent Pipeline ─────────────────────────────────── */
+    .agent-pipeline {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      padding: 16px 24px;
+      flex-shrink: 0;
+    }
+    .agent-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      transition: all 0.25s;
+      min-height: 140px;
+      position: relative;
+      overflow: hidden;
+    }
+    .agent-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--border);
+      transition: background 0.25s;
+    }
+    .agent-card.active::before    { background: var(--indigo); }
+    .agent-card.complete::before  { background: var(--green); }
+    .agent-card.error::before     { background: var(--red); }
+    .agent-card.blocked::before   { background: var(--red); }
+    .agent-card.watching::before  { background: var(--yellow); }
+    .agent-card.active {
+      border-color: var(--indigo);
+      box-shadow: 0 0 16px var(--indigo-lo), 0 0 0 1px var(--indigo);
+    }
+    .agent-card.complete { border-color: var(--green); }
+    .agent-card.error, .agent-card.blocked { border-color: var(--red); }
+    .agent-card.watching { border-color: var(--yellow); }
+
+    .agent-num {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--dim);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .agent-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .agent-state {
+      font-size: 11px;
+      color: var(--dim);
+      margin-bottom: 10px;
+    }
+    .agent-card.active  .agent-state { color: var(--indigo); }
+    .agent-card.complete .agent-state { color: var(--green); }
+    .agent-card.error   .agent-state { color: var(--red); }
+    .agent-card.blocked  .agent-state { color: var(--red); }
+    .agent-card.watching .agent-state { color: var(--yellow); }
+
+    .agent-output {
+      font-size: 11px;
+      color: var(--dim);
+      line-height: 1.6;
+    }
+    .agent-output .kv {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+    .agent-output .k { color: var(--dim); min-width: 60px; flex-shrink: 0; }
+    .agent-output .v { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agent-output .v.green  { color: var(--green); }
+    .agent-output .v.red    { color: var(--red); }
+    .agent-output .v.yellow { color: var(--yellow); }
+    .agent-output .v.violet { color: var(--violet); }
+    .agent-output .v.teal   { color: var(--teal); }
+
+    .spinner {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border: 2px solid var(--indigo-lo);
+      border-top-color: var(--indigo);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Bottom Panels ──────────────────────────────────── */
+    .bottom-panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 0 24px 12px;
+      flex: 1;
+      min-height: 0;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      scroll-behavior: smooth;
+    }
+    .panel-body::-webkit-scrollbar { width: 4px; }
+    .panel-body::-webkit-scrollbar-track { background: transparent; }
+    .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* Event log entries */
+    .log-entry {
+      display: flex;
+      gap: 8px;
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(51,65,85,0.4);
+      font-size: 11px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      animation: fade-in 0.2s ease;
+    }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; } }
+    .log-time { color: var(--dim); white-space: nowrap; flex-shrink: 0; }
+    .log-event { font-weight: 600; white-space: nowrap; flex-shrink: 0; min-width: 180px; }
+    .log-summary { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Event type colors */
+    .ev-start        { color: var(--indigo); }
+    .ev-phase        { color: var(--cyan); }
+    .ev-risk         { color: var(--yellow); }
+    .ev-compliance   { color: var(--violet); }
+    .ev-violation    { color: var(--red); }
+    .ev-deploy       { color: var(--green); }
+    .ev-sentinel     { color: var(--teal); }
+    .ev-rollback     { color: var(--red); }
+    .ev-audit        { color: var(--violet); }
+    .ev-scribe       { color: var(--teal); }
+    .ev-complete     { color: var(--green); }
+    .ev-error        { color: var(--red); }
+    .ev-ws           { color: var(--dim); }
+    .ev-approval     { color: var(--yellow); }
+
+    /* Confluence preview */
+    .conf-section {
+      margin-bottom: 14px;
+      animation: fade-in 0.3s ease;
+    }
+    .conf-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--teal);
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .conf-section-title::before {
+      content: '§';
+      opacity: 0.5;
+    }
+    .conf-kv {
+      display: flex;
+      gap: 8px;
+      font-size: 11px;
+      margin-bottom: 3px;
+    }
+    .conf-k { color: var(--dim); min-width: 110px; flex-shrink: 0; }
+    .conf-v { color: var(--text); }
+    .conf-v a { color: var(--teal); text-decoration: none; }
+    .conf-v a:hover { text-decoration: underline; }
+    .conf-placeholder {
+      color: var(--dim);
+      font-size: 12px;
+      padding: 20px 0;
+      text-align: center;
+    }
+
+    /* ── Metrics Bar ────────────────────────────────────── */
+    .metrics-bar {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 10px 24px;
+      display: flex;
+      gap: 24px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .metric {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .metric-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--dim);
+    }
+    .metric-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .metric-value.green  { color: var(--green); }
+    .metric-value.red    { color: var(--red); }
+    .metric-value.yellow { color: var(--yellow); }
+    .metric-value.teal   { color: var(--teal); }
+
+    /* ── Responsive tweaks ──────────────────────────────── */
+    @media (max-width: 900px) {
+      .agent-pipeline { grid-template-columns: repeat(3, 1fr); }
+      .bottom-panels  { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      .agent-pipeline { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────────────────── -->
+<header>
+  <h1>Release <span>Pilot</span></h1>
+  <div id="headerScenario">Select a scenario and click Start</div>
+  <div id="headerTraceId"></div>
+  <div id="statusPill" class="pill pill-idle">IDLE</div>
+</header>
+
+<!-- ── Controls ──────────────────────────────────────────────────────────── -->
+<div class="controls">
+  <span class="scenario-label">Scenario</span>
+  <div class="scenario-group">
+    <button class="scenario-btn active" data-scenario="1" title="ServiceA healthy canary deploy">1</button>
+    <button class="scenario-btn"        data-scenario="3" title="Error rate spike → rollback">3</button>
+    <button class="scenario-btn"        data-scenario="4" title="PCI guardrail block">4</button>
+    <button class="scenario-btn"        data-scenario="6" title="ServiceB healthy deploy">6</button>
+  </div>
+  <span id="scenarioDesc" class="scenario-desc">Healthy Deploy — ServiceA (PR #101)</span>
+  <button id="startBtn" class="btn-start">▶ Start Demo</button>
+  <button id="approveBtn" class="btn-approve">✓ Approve Release</button>
+</div>
+
+<!-- ── Safety Strip ───────────────────────────────────────────────────────── -->
+<div class="safety-strip">
+  <span class="safety-label">Safety Layer</span>
+  <div class="safety-chip" id="chip-pci">
+    <span class="dot"></span>PCI / PII Redactor
+  </div>
+  <div class="safety-chip" id="chip-injection">
+    <span class="dot"></span>Injection Sanitizer
+  </div>
+  <div class="safety-chip" id="chip-opa">
+    <span class="dot"></span>OPA Policy Engine
+  </div>
+</div>
+
+<!-- ── Agent Pipeline ────────────────────────────────────────────────────── -->
+<div class="agent-pipeline">
+  <div class="agent-card" id="card-risk">
+    <div class="agent-num">Agent 1</div>
+    <div class="agent-name">Risk Analyst</div>
+    <div class="agent-state">Idle</div>
+    <div class="agent-output"></div>
+  </div>
+  <div class="agent-card" id="card-compliance">
+    <div class="agent-num">Agent 2</div>
+    <div class="agent-name">Compliance Auditor</div>
+    <div class="agent-state">Idle</div>
+    <div class="agent-output"></div>
+  </div>
+  <div class="agent-card" id="card-canary">
+    <div class="agent-num">Agent 3</div>
+    <div class="agent-name">Canary Orchestrator</div>
+    <div class="agent-state">Idle</div>
+    <div class="agent-output"></div>
+  </div>
+  <div class="agent-card" id="card-sentinel">
+    <div class="agent-num">Agent 4</div>
+    <div class="agent-name">SLO Sentinel</div>
+    <div class="agent-state">Idle</div>
+    <div class="agent-output"></div>
+  </div>
+  <div class="agent-card" id="card-scribe">
+    <div class="agent-num">Agent 5</div>
+    <div class="agent-name">Release Scribe</div>
+    <div class="agent-state">Idle</div>
+    <div class="agent-output"></div>
+  </div>
+</div>
+
+<!-- ── Bottom Panels ──────────────────────────────────────────────────────── -->
+<div class="bottom-panels">
+  <div class="panel">
+    <div class="panel-header">
+      <span>Event Log</span>
+      <span id="eventCount" style="margin-left:auto; font-weight:400; font-size:11px;"></span>
+    </div>
+    <div class="panel-body" id="eventLog">
+      <div class="conf-placeholder">Events will appear here when a pipeline runs.</div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <span>Confluence Release Page</span>
+      <span id="confStatus" style="margin-left:auto; font-weight:400; font-size:11px; color: var(--dim);">—</span>
+    </div>
+    <div class="panel-body" id="confluenceBody">
+      <div class="conf-placeholder" id="confPlaceholder">The release page will build section by section as the pipeline progresses.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Metrics Bar ────────────────────────────────────────────────────────── -->
+<div class="metrics-bar">
+  <div class="metric">
+    <span class="metric-label">Risk Score</span>
+    <span class="metric-value" id="m-risk">—</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">Risk Level</span>
+    <span class="metric-value" id="m-level">—</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">PCI Scope</span>
+    <span class="metric-value" id="m-pci">—</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">TTD</span>
+    <span class="metric-value" id="m-ttd">—</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">OPA Denials</span>
+    <span class="metric-value" id="m-opa">0</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">A2A Events</span>
+    <span class="metric-value" id="m-events">0</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">Outcome</span>
+    <span class="metric-value" id="m-outcome">—</span>
+  </div>
+</div>
+
+<script>
+  // ── State ────────────────────────────────────────────────────────────────
+  const SCENARIO_META = {
+    1: { name: 'Healthy Deploy — ServiceA', desc: 'ServiceA healthy canary deploy (PR #101)' },
+    3: { name: 'Error Rate Spike → Rollback', desc: 'ServiceA SLO breach → automated rollback' },
+    4: { name: 'PCI Guardrail Block', desc: 'OPA denies due to PCI scope + no approval token' },
+    6: { name: 'Healthy Deploy — ServiceB', desc: 'ServiceB (non-PCI) healthy deploy (PR #201)' },
+  };
+
+  let selectedScenario = 1;
+  let activeReleaseId   = null;
+  let ws                = null;
+  let startTime         = null;
+  let ttdInterval       = null;
+  let eventCount        = 0;
+  let opaCount          = 0;
+
+  // ── DOM refs ─────────────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const statusPill      = $('statusPill');
+  const headerScenario  = $('headerScenario');
+  const headerTraceId   = $('headerTraceId');
+  const startBtn        = $('startBtn');
+  const approveBtn      = $('approveBtn');
+  const eventLog        = $('eventLog');
+  const eventCountEl    = $('eventCount');
+  const confBody        = $('confluenceBody');
+  const confPlaceholder = $('confPlaceholder');
+  const confStatus      = $('confStatus');
+
+  // ── Scenario picker ──────────────────────────────────────────────────────
+  document.querySelectorAll('.scenario-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (ws) return; // pipeline running
+      document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedScenario = parseInt(btn.dataset.scenario);
+      $('scenarioDesc').textContent = SCENARIO_META[selectedScenario]?.desc || '';
+    });
+  });
+
+  // ── Start ────────────────────────────────────────────────────────────────
+  startBtn.addEventListener('click', async () => {
+    if (ws) return;
+    resetUI();
+    startBtn.disabled = true;
+    startBtn.textContent = '⟳ Starting…';
+
+    let data;
+    try {
+      const res = await fetch('/demo/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenario: selectedScenario }),
+      });
+      data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'start failed');
+    } catch (err) {
+      startBtn.disabled = false;
+      startBtn.textContent = '▶ Start Demo';
+      addLogEntry('error', 'start.error', err.message);
+      return;
+    }
+
+    activeReleaseId = data.release_id;
+    headerScenario.textContent = `${data.scenario_name}  ·  ${data.service_id}  ·  PR #${data.pr_number}`;
+    headerTraceId.textContent  = `trace: ${data.trace_id?.slice(0, 16)}`;
+    startBtn.textContent = '⟳ Running…';
+    startTime = Date.now();
+    ttdInterval = setInterval(() => {
+      $('m-ttd').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+    }, 200);
+
+    setPill('running', 'RUNNING');
+    openWebSocket(data.release_id);
+  });
+
+  // ── Approve ──────────────────────────────────────────────────────────────
+  approveBtn.addEventListener('click', async () => {
+    approveBtn.classList.remove('visible');
+    await fetch('/demo/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'dashboard-approve' }),
+    });
+    addLogEntry('deploy', 'approval.sent', 'Human approval token submitted');
+  });
+
+  // ── WebSocket ────────────────────────────────────────────────────────────
+  function openWebSocket(releaseId) {
+    const proto  = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl  = `${proto}//${location.host}/ws/release/${releaseId}`;
+    ws = new WebSocket(wsUrl);
+
+    ws.onmessage = evt => {
+      try { handleEvent(JSON.parse(evt.data)); } catch(e) { console.error(e); }
+    };
+    ws.onclose  = ()  => { ws = null; };
+    ws.onerror  = err => { addLogEntry('error', 'ws.error', String(err)); };
+  }
+
+  // ── Event handler ────────────────────────────────────────────────────────
+  function handleEvent(env) {
+    const type    = env.event || env.message_type || '';
+    const payload = env.payload || env.data || {};
+    eventCount++;
+    $('m-events').textContent = eventCount;
+    eventCountEl.textContent  = `${eventCount} events`;
+
+    switch (type) {
+      case 'pipeline.start':      onPipelineStart(env, payload);   break;
+      case 'phase.risk_analysis': onPhaseRisk();                    break;
+      case 'risk_verdict':        onRiskVerdict(payload);           break;
+      case 'phase.compliance_precheck': onPhaseCompliance();        break;
+      case 'policy_violation':    onPolicyViolation(payload);       break;
+      case 'deployment_blocked_pending_approval': onPendingApproval(payload); break;
+      case 'deploy_handle':       onDeployHandle(payload);          break;
+      case 'sentinel_verdict':    onSentinelVerdict(payload);       break;
+      case 'rollback_signal':     onRollback(payload);              break;
+      case 'audit_packet':        onAuditPacket(payload);           break;
+      case 'release_page_published': onPagePublished(payload);      break;
+      case 'pipeline.complete':   onPipelineComplete();             break;
+      case 'agent_error':         onAgentError(payload);            break;
+      case 'ws.done':             onWsDone(payload);                break;
+      default:
+        addLogEntry('ws', type, JSON.stringify(payload).slice(0, 80));
+    }
+  }
+
+  // ── Event handlers ───────────────────────────────────────────────────────
+  function onPipelineStart(env, p) {
+    addLogEntry('start', 'pipeline.start',
+      `service=${p.service_id}  PR #${p.pr_number}  trace=${(env.trace_id||'').slice(0,12)}`);
+    flashSafety('chip-pci',       1200);
+    flashSafety('chip-injection', 1500);
+  }
+
+  function onPhaseRisk() {
+    setCard('card-risk', 'active', 'Analyzing…');
+    addLogEntry('phase', 'phase.risk_analysis', 'PCI redactor + injection sanitizer + RAG + service graph');
+    flashSafety('chip-pci',       900);
+    flashSafety('chip-injection', 900);
+  }
+
+  function onRiskVerdict(p) {
+    const score = p.score ?? '?';
+    const level = p.risk_level ?? '?';
+    const pci   = p.pci_scope_touched ? 'YES' : 'no';
+    const conf  = (p.confidence ?? 0).toFixed(2);
+    const color = riskColor(level);
+    setCard('card-risk', 'complete', '✓ Complete', kvHtml([
+      ['Risk',       `<span class="${color}">${level} (${score}/100)</span>`],
+      ['PCI',        pci === 'YES' ? '<span class="red">YES</span>' : '<span class="green">no</span>'],
+      ['Confidence', conf],
+      ['Guardrails', (p.guardrails_triggered || []).join(', ') || 'none'],
+    ]));
+    $('m-risk').textContent  = `${score}/100`;
+    $('m-level').textContent = level;
+    $('m-level').className   = 'metric-value ' + color;
+    $('m-pci').textContent   = pci;
+    $('m-pci').className     = 'metric-value ' + (pci === 'YES' ? 'red' : 'green');
+    addLogEntry('risk', 'risk_verdict', `${level} score=${score} pci=${pci} conf=${conf}`);
+
+    confAddSection('risk', 'Risk Assessment', [
+      ['Risk Level',    `${level} (${score}/100)`],
+      ['PCI Scope',     pci === 'YES' ? 'YES — PCI-DSS controls engaged' : 'No'],
+      ['Confidence',    conf],
+      ['Guardrails',    (p.guardrails_triggered || []).join(', ') || 'none'],
+      ['Blast Radius',  JSON.stringify(p.blast_radius || {})],
+    ]);
+  }
+
+  function onPhaseCompliance() {
+    setCard('card-compliance', 'active', 'Evaluating OPA policy…');
+    addLogEntry('compliance', 'phase.compliance_precheck', 'OPA evaluating harness.deploy policy');
+    flashSafety('chip-opa', 1000);
+  }
+
+  function onPolicyViolation(p) {
+    const reasons = (p.denial_reasons || []).join(', ');
+    opaCount++;
+    $('m-opa').textContent  = opaCount;
+    $('m-opa').className    = 'metric-value red';
+    setCard('card-compliance', 'blocked', '✗ Policy Denied', kvHtml([
+      ['OPA',     '<span class="red">DENIED</span>'],
+      ['Reasons', reasons],
+    ]));
+    flashSafety('chip-opa', 2000, 'active');
+    setPill('blocked', 'BLOCKED');
+    addLogEntry('violation', 'policy_violation', reasons);
+
+    confAddSection('compliance', 'Compliance Pre-check', [
+      ['OPA Verdict', 'DENIED'],
+      ['Denial Reasons', reasons],
+    ]);
+  }
+
+  function onPendingApproval(p) {
+    setCard('card-canary', 'watching', '⏸ Awaiting approval…');
+    approveBtn.classList.add('visible');
+    setPill('running', 'AWAITING APPROVAL');
+    addLogEntry('approval', 'deployment_blocked_pending_approval',
+      `service=${p.service_id}  human approval required`);
+  }
+
+  function onDeployHandle(p) {
+    approveBtn.classList.remove('visible');
+    const pct  = p.canary_pct ?? '?';
+    const bake = p.bake_minutes ?? '?';
+    const exec = p.harness_execution_id ?? '?';
+    setCard('card-canary', 'active', '⟳ Canary deploying…', kvHtml([
+      ['Traffic', `${pct}%`],
+      ['Bake',    `${bake} min`],
+      ['Harness', exec],
+    ]));
+    setCard('card-sentinel', 'watching', '⟳ Watching SLOs…');
+    flashSafety('chip-opa', 800, 'opa-allow');
+    addLogEntry('deploy', 'deploy_handle',
+      `canary=${pct}%  bake=${bake}min  exec=${exec}`);
+
+    confAddSection('deploy', 'Deployment Details', [
+      ['Canary Traffic', `${pct}%`],
+      ['Bake Time',      `${bake} minutes`],
+      ['Harness Exec',   exec],
+      ['Deployment ID',  p.deployment_id || '—'],
+    ]);
+  }
+
+  function onSentinelVerdict(p) {
+    const v    = p.verdict ?? '?';
+    const conf = (p.confidence ?? 0).toFixed(2);
+    const vColor = v === 'PROMOTE' ? 'green' : (v === 'ROLLBACK' ? 'red' : 'yellow');
+    setCard('card-sentinel', v === 'PROMOTE' ? 'complete' : 'error',
+      v === 'PROMOTE' ? '✓ PROMOTE' : `✗ ${v}`, kvHtml([
+      ['Verdict',    `<span class="${vColor}">${v}</span>`],
+      ['Confidence', conf],
+      ['Intervals',  p.intervals_checked ?? '?'],
+    ]));
+    if (v !== 'ROLLBACK') {
+      setCard('card-canary', 'complete', '✓ Canary complete');
+    }
+    addLogEntry(v === 'PROMOTE' ? 'sentinel' : 'rollback', 'sentinel_verdict',
+      `${v}  conf=${conf}  ${(p.reasoning||'').slice(0,60)}`);
+
+    confAddSection('slo', 'SLO Monitoring', [
+      ['SLO Verdict',     v],
+      ['Confidence',      conf],
+      ['Intervals',       p.intervals_checked ?? '—'],
+      ['Reasoning',       (p.reasoning || '—').slice(0, 120)],
+    ]);
+  }
+
+  function onRollback(p) {
+    setPill('rollback', 'ROLLED BACK');
+    addLogEntry('rollback', 'rollback_signal', p.reason || 'SLO breach');
+    $('m-outcome').textContent = 'ROLLED BACK';
+    $('m-outcome').className   = 'metric-value yellow';
+  }
+
+  function onAuditPacket(p) {
+    const verdict = p.auditor_verdict ?? '?';
+    const hash    = (p.audit_trail_hash || '').slice(0, 16) + '…';
+    const pci     = (p.pci_controls_engaged || []).join(', ') || 'N/A';
+    setCard('card-compliance', 'complete', '✓ Attested', kvHtml([
+      ['Verdict', `<span class="teal">${verdict}</span>`],
+      ['Hash',    hash],
+    ]));
+    setCard('card-scribe', 'active', '⟳ Building page…');
+    addLogEntry('audit', 'audit_packet', `verdict=${verdict}  hash=${hash}`);
+
+    confAddSection('audit', 'Compliance Attestation', [
+      ['Auditor Verdict',   verdict],
+      ['Audit Hash (SHA256)', hash],
+      ['PCI Controls',      pci],
+      ['SOX Scope',         p.sox_scope ? 'YES' : 'no'],
+    ]);
+  }
+
+  function onPagePublished(p) {
+    const url = p.confluence_url || p.url || null;
+    setCard('card-scribe', 'complete', '✓ Page published', kvHtml([
+      ['URL', url
+        ? `<a href="${url}" target="_blank" class="teal">${url.slice(0, 40)}…</a>`
+        : '<span class="dim">demo-mode</span>'],
+    ]));
+    addLogEntry('scribe', 'release_page_published',
+      url || 'confluence page published (demo mode)');
+
+    confAddSection('release', 'Release Page', [
+      ['Confluence URL', url || '(demo mode — would publish to Confluence)'],
+    ]);
+    confStatus.textContent = '✓ Published';
+    confStatus.style.color = 'var(--green)';
+  }
+
+  function onPipelineComplete() {
+    setPill('complete', 'COMPLETE');
+    addLogEntry('complete', 'pipeline.complete', 'All agents finished — deployment succeeded');
+    $('m-outcome').textContent = 'PROMOTED';
+    $('m-outcome').className   = 'metric-value green';
+  }
+
+  function onAgentError(p) {
+    setPill('failed', 'FAILED');
+    addLogEntry('error', 'agent_error', `${p.type}: ${p.error}`);
+    $('m-outcome').textContent = 'FAILED';
+    $('m-outcome').className   = 'metric-value red';
+  }
+
+  function onWsDone(p) {
+    clearInterval(ttdInterval);
+    const status = p.status || '';
+    if (!['complete', 'rolled-back', 'blocked', 'failed'].includes(status)) {
+      // ensure final outcome is set
+    }
+    startBtn.disabled  = false;
+    startBtn.textContent = '▶ Start Demo';
+    addLogEntry('ws', 'ws.done', `pipeline finished — status=${status}`);
+    document.querySelectorAll('.scenario-btn').forEach(b => b.style.pointerEvents = '');
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function setPill(cls, text) {
+    statusPill.className = `pill pill-${cls}`;
+    statusPill.textContent = text;
+  }
+
+  function setCard(id, state, stateText, outputHtml) {
+    const card = $(id);
+    card.className = `agent-card ${state}`;
+    card.querySelector('.agent-state').innerHTML =
+      state === 'active'   ? `<span class="spinner"></span>${stateText}` : stateText;
+    if (outputHtml !== undefined) {
+      card.querySelector('.agent-output').innerHTML = outputHtml;
+    }
+  }
+
+  function kvHtml(pairs) {
+    return pairs.map(([k, v]) =>
+      `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`
+    ).join('');
+  }
+
+  function riskColor(level) {
+    return { LOW: 'green', MEDIUM: 'yellow', HIGH: 'yellow', CRITICAL: 'red' }[level] || '';
+  }
+
+  function addLogEntry(colorClass, eventName, summary) {
+    const wasEmpty = eventLog.querySelector('.conf-placeholder');
+    if (wasEmpty) eventLog.innerHTML = '';
+
+    const now = new Date();
+    const ts  = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    div.innerHTML = `
+      <span class="log-time">${ts}</span>
+      <span class="log-event ev-${colorClass}">${eventName}</span>
+      <span class="log-summary">${summary}</span>
+    `;
+    eventLog.insertBefore(div, eventLog.firstChild);
+  }
+
+  function flashSafety(chipId, durationMs, overrideClass) {
+    const chip = $(chipId);
+    const cls  = overrideClass || 'active';
+    chip.classList.add(cls);
+    setTimeout(() => chip.classList.remove(cls), durationMs);
+  }
+
+  function confAddSection(id, title, kvPairs) {
+    confPlaceholder && (confPlaceholder.style.display = 'none');
+    const existing = document.getElementById(`conf-sec-${id}`);
+    if (existing) existing.remove();
+
+    const sec = document.createElement('div');
+    sec.className = 'conf-section';
+    sec.id = `conf-sec-${id}`;
+    sec.innerHTML = `
+      <div class="conf-section-title">${title}</div>
+      ${kvPairs.map(([k, v]) =>
+        `<div class="conf-kv"><span class="conf-k">${k}</span><span class="conf-v">${v}</span></div>`
+      ).join('')}
+    `;
+    confBody.appendChild(sec);
+    confBody.scrollTop = confBody.scrollHeight;
+  }
+
+  function resetUI() {
+    // Cards
+    ['card-risk','card-compliance','card-canary','card-sentinel','card-scribe'].forEach(id => {
+      const c = $(id);
+      c.className = 'agent-card';
+      c.querySelector('.agent-state').textContent = 'Idle';
+      c.querySelector('.agent-output').innerHTML  = '';
+    });
+    // Safety chips
+    ['chip-pci','chip-injection','chip-opa'].forEach(id => {
+      const chip = $(id);
+      chip.className = 'safety-chip';
+    });
+    // Metrics
+    ['m-risk','m-level','m-pci','m-ttd'].forEach(id => { $(id).textContent = '—'; $(id).className = 'metric-value'; });
+    $('m-opa').textContent = '0'; $('m-opa').className = 'metric-value';
+    $('m-events').textContent = '0';
+    $('m-outcome').textContent = '—'; $('m-outcome').className = 'metric-value';
+    // Log
+    eventLog.innerHTML = '';
+    // Confluence
+    confBody.innerHTML = '<div class="conf-placeholder" id="confPlaceholder">The release page will build section by section as the pipeline progresses.</div>';
+    confStatus.textContent = '—'; confStatus.style.color = '';
+    // Buttons
+    approveBtn.classList.remove('visible');
+    // Counters
+    eventCount = 0; opaCount = 0;
+    headerTraceId.textContent = '';
+    // WebSocket
+    if (ws) { ws.close(); ws = null; }
+    clearInterval(ttdInterval);
+    setPill('idle', 'IDLE');
+  }
+
+  // Disable scenario buttons while running
+  document.querySelectorAll('.scenario-btn').forEach(btn => {
+    btn.addEventListener('mousedown', e => { if (ws) e.preventDefault(); });
+  });
+</script>
+</body>
+</html>

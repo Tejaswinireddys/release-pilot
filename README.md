@@ -154,6 +154,44 @@ release-pilot/
 
 ---
 
+## Dashboard
+
+Release Pilot ships a lightweight real-time web dashboard that visualises every A2A event as it is emitted — no polling, no hard-coded animations.
+
+```bash
+# Start the full demo environment (includes dashboard server on port 9100)
+./start_demo.sh
+
+# Then open:
+open http://localhost:9100
+```
+
+### What you see
+
+| Area | Description |
+|------|-------------|
+| **Scenario picker** | Buttons 1 / 3 / 4 / 6 — select a scenario then click **▶ Start Demo** |
+| **Safety Layer strip** | PCI/PII Redactor, Injection Sanitizer, and OPA Policy Engine chips flash in real-time as each layer fires |
+| **5 Agent cards** | Each card lights up when its agent is active, shows structured output (risk score, canary %, SLO verdict …), and turns green/red on completion |
+| **Approve Release button** | Appears automatically on scenario 1 when the pipeline reaches the human-approval gate; click to unblock |
+| **Event log** | Every A2A message rendered as it arrives, newest at top, colour-coded by type |
+| **Confluence page preview** | Builds section by section (Risk Assessment → Deployment Details → SLO Monitoring → Compliance Attestation → Release URL) as events arrive |
+| **Metrics bar** | Live risk score, risk level, PCI scope, time-to-decision, OPA denial count, total events, final outcome |
+
+### Running a scenario from the browser
+
+1. `./start_demo.sh` — wait for "Dashboard ready"
+2. Open `http://localhost:9100`
+3. Click a scenario button (1, 3, 4, or 6)
+4. Click **▶ Start Demo**
+5. Watch the pipeline execute in real time
+
+The dashboard connects to the actual orchestrator over a WebSocket and reflects live events — if the orchestrator is slow, the dashboard waits.
+
+To run scenarios from the terminal instead, use `demo_runner.py` as described below.
+
+---
+
 ## Running Locally
 
 ### Demo mode (recommended for first run)

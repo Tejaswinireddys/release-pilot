@@ -29,10 +29,16 @@ wait_for "Mock AWS" "http://localhost:8080/health"
 python -c "from src.knowledge.rag_index import RAGIndex; RAGIndex().seed_demo_data()"
 python -c "from src.knowledge.memory_store import DeploymentMemory; DeploymentMemory().seed_demo_history()"
 
+# Start the dashboard server in the background.
+python -m uvicorn src.dashboard.server:app --port 9100 --log-level warning &
+wait_for "Dashboard" "http://localhost:9100/"
+
 echo ""
 echo "Release Pilot demo ready!"
-echo "  Jaeger UI: http://localhost:16686"
-echo "  OPA:       http://localhost:8181"
-echo "  Mock AWS:  http://localhost:8080/health"
+echo "  Dashboard:  http://localhost:9100"
+echo "  Jaeger UI:  http://localhost:16686"
+echo "  OPA:        http://localhost:8181"
+echo "  Mock AWS:   http://localhost:8080/health"
 echo ""
-echo "Run demo: python demo_runner.py --scenario 3"
+echo "Open http://localhost:9100 in your browser and click 'Start Demo'."
+echo "Or run from the terminal: python demo_runner.py --scenario 3"
