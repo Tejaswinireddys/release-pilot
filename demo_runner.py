@@ -260,7 +260,15 @@ def _print_summary(run: Any, elapsed: float) -> None:
     console.print()
     console.print(t)
     console.print()
-    console.print(f"[dim]Open Jaeger trace: http://localhost:16686/trace/{run.trace_id}[/dim]")
+    import os as _os
+    if _os.getenv("OTEL_MODE", "auto").strip().lower() == "file":
+        console.print("[dim]Trace summary:  traces/last_run.txt[/dim]")
+    elif _os.getenv("OTEL_MODE", "auto").strip().lower() == "console":
+        pass  # spans already printed to stdout
+    else:
+        console.print(
+            f"[dim]Open Jaeger:    http://localhost:16686/trace/{run.trace_id}[/dim]"
+        )
     if conf_url:
         console.print(f"[dim]Confluence page:   {conf_url}[/dim]")
     console.print()

@@ -38,7 +38,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -46,6 +45,7 @@ from src.agents.canary_orchestrator import DeploymentHandle
 from src.opa_client import OPAClient
 from src.redactor import PCIRedactor
 from src.telemetry import get_tracer, record_llm_call
+from src.tools.aws_client import get_metrics_backend
 
 log = logging.getLogger(__name__)
 
@@ -115,10 +115,7 @@ class SLOSentinel:
             base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         )
         self._model = os.getenv("AGENT_MODEL", "gpt-4o")
-        self._http = httpx.AsyncClient(
-            base_url=os.getenv("AWS_MOCK_URL", "http://localhost:8080"),
-            timeout=15.0,
-        )
+        self._metrics = get_metrics_backend()
         self._opa = OPAClient()
         self._redactor = PCIRedactor()
         self._tracer = get_tracer("slo-sentinel")
@@ -315,24 +312,12 @@ class SLOSentinel:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     async def _fetch_metrics(self, service: str) -> dict[str, Any]:
-        """GET /cloudwatch/metrics/{service} — advances scenario timeline."""
-        try:
-            resp = await self._http.get(f"/cloudwatch/metrics/{service}")
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPError as exc:
-            log.warning("cloudwatch.metrics_fetch_failed service=%s error=%s", service, exc)
-            return {}
+        """Fetch live metrics — delegates to the configured metrics backend."""
+        return await self._metrics.get_metrics(service)
 
     async def _fetch_baseline(self, service: str) -> dict[str, Any]:
-        """GET /cloudwatch/baseline/{service} — static 7-day window."""
-        try:
-            resp = await self._http.get(f"/cloudwatch/baseline/{service}")
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPError as exc:
-            log.warning("cloudwatch.baseline_fetch_failed service=%s error=%s", service, exc)
-            return {}
+        """Fetch 7-day baseline — delegates to the configured metrics backend."""
+        return await self._metrics.get_baseline(service)
 
     async def _call_llm(
         self,
@@ -417,7 +402,7 @@ class SLOSentinel:
         )
 
     async def close(self) -> None:
-        await self._http.aclose()
+        await self._metrics.close()
 
 
 # ── JSON helper ───────────────────────────────────────────────────────────────

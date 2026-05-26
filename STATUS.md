@@ -39,14 +39,14 @@ python3.11 -m pytest tests/ -v
 
 | Result | Count |
 |--------|-------|
-| Passed | 63 |
+| Passed | 84 |
 | Skipped | 8 (OPA live-server tests — require `OPA_URL` pointing to a running OPA instance) |
 | Failed | 0 |
-| Total | 71 |
+| Total | 92 |
 
 One `DeprecationWarning` from `opentelemetry.util._importlib_metadata` (upstream package, not our code).
 
-All 8 spec-required integration tests pass:
+21 new live-integration tests added in `tests/test_live_integrations.py` (sandbox guards, dry-run, factory selection). All 8 spec-required integration tests pass:
 - `test_healthy_deploy_end_to_end`
 - `test_rollback_pipeline`
 - `test_pci_guardrail_blocks_deploy`
@@ -107,8 +107,8 @@ No PII/PAN leaks observed in any error path. Redactor runs before every LLM call
 |-------------|--------|-----------|-------|
 | **GitHub PR diff** | LIVE-CAPABLE | `INTEGRATION_GITHUB_MODE=live` | Fetches real diff + file list from GitHub REST API; falls back to fixture diff on failure |
 | **Confluence pages** | LIVE-CAPABLE | `INTEGRATION_CONFLUENCE_MODE=live` | Publishes via Confluence Cloud REST API v2; falls back to local Markdown on failure |
-| **AWS (CloudWatch / ECS)** | MOCK-BY-DESIGN | — | Real deployment infrastructure is intentionally out of scope; mock serves scenario YAML metrics |
-| **Harness deploy** | MOCK-BY-DESIGN | — | Real deployment infrastructure is intentionally out of scope; deterministic mock responses |
+| **AWS CloudWatch** | LIVE-CAPABLE | `INTEGRATION_AWS_MODE=live` | boto3 CloudWatch reads; sandbox-scoped to `AWS_SANDBOX_SERVICE`; falls back to mock on error |
+| **Harness deploy** | LIVE-CAPABLE | `INTEGRATION_HARNESS_MODE=live` | Real Harness REST API; sandbox-scoped; `SAFETY_ALLOW_LIVE_DEPLOYS=false` dry-run by default; falls back to mock on error |
 
 To verify credentials before running a pipeline:
 ```bash
@@ -121,8 +121,8 @@ source .env && python3 scripts/check_github.py --pr 42
 | Component | Status | Notes |
 |-----------|--------|-------|
 | **Risk Analyst** | NEEDS-LIVE-CREDENTIALS | Requires `OPENAI_API_KEY`; GitHub live diff: set `INTEGRATION_GITHUB_MODE=live` + `GITHUB_TOKEN` + `GITHUB_REPO` |
-| **Canary Orchestrator** | WORKING-WITH-MOCKS | Harness in demo mode; OPA embedded; no external creds needed |
-| **SLO Sentinel** | WORKING-WITH-MOCKS | Needs mock AWS server running (`docker-compose up -d aws-mock`) |
+| **Canary Orchestrator** | LIVE-CAPABLE | Mock (default); live Harness via `INTEGRATION_HARNESS_MODE=live`; `SAFETY_ALLOW_LIVE_DEPLOYS=false` dry-run by default |
+| **SLO Sentinel** | LIVE-CAPABLE | Mock (default); live CloudWatch via `INTEGRATION_AWS_MODE=live`; falls back to mock on any boto3 error |
 | **Compliance Auditor** | WORKING | Zero external tools; OPA embedded; all tests pass |
 | **Release Scribe** | NEEDS-LIVE-CREDENTIALS | Requires `OPENAI_API_KEY`; Confluence live: set `INTEGRATION_CONFLUENCE_MODE=live` + Atlassian vars |
 | **OPA Policy Engine (embedded)** | WORKING | Evaluates `release_guardrails.rego` in-process; no server needed |
@@ -130,7 +130,8 @@ source .env && python3 scripts/check_github.py --pr 42
 | **Mock AWS Server** | WORKING | Starts cleanly; serves timeline metrics from scenario YAML |
 | **PCI/PII Redactor** | WORKING | Luhn-validated PAN detection; CVV, email, CDE class redaction |
 | **Prompt Injection Sanitizer** | WORKING | Pattern-based; all sanitizer tests pass |
-| **OpenTelemetry (OTLP)** | WORKING-WITH-MOCKS | Exports fail silently when Jaeger absent; `trace_id` propagated correctly |
+| **OpenTelemetry (file mode)** | WORKING | Default when Jaeger absent; writes `traces/last_run.txt` + JSONL; no Docker required |
+| **OpenTelemetry (OTLP)** | WORKING-WITH-MOCKS | Requires Jaeger or OTEL Collector; `OTEL_MODE=otlp`; falls back to file mode automatically |
 | **GitHub integration** | LIVE-CAPABLE | `INTEGRATION_GITHUB_MODE=live`; fails gracefully to fixture diff |
 | **Confluence integration** | LIVE-CAPABLE | `INTEGRATION_CONFLUENCE_MODE=live`; fails gracefully to local Markdown |
 | **Teams Notification** | NEEDS-LIVE-CREDENTIALS | Requires `TEAMS_WEBHOOK_URL`; skipped gracefully when absent |
@@ -138,7 +139,10 @@ source .env && python3 scripts/check_github.py --pr 42
 | **Web Dashboard** | WORKING | FastAPI on port 9100; real-time WebSocket event stream |
 | **Demo Runner CLI** | WORKING-WITH-MOCKS | `demo_runner.py` orchestration correct; blocked at LLM call without `OPENAI_API_KEY` |
 | **Test Suite** | WORKING | 63/71 pass; 8 skipped (OPA live mode) |
-| **Docker Compose** | WORKING-WITH-MOCKS | `jaeger`, `opa`, `aws-mock` services defined; requires Docker daemon |
+| **Docker Compose** | OPTIONAL | `jaeger`, `opa`, `aws-mock` services defined; all three also run without Docker |
+| **start_demo.sh** | WORKING | Auto-detects Docker; falls back to no-Docker path (Mock AWS + OPA embedded + file traces) |
+| **start_demo_nodocker.sh** | WORKING | Explicit no-Docker path; same as start_demo.sh no-Docker branch |
+| **scripts/install_jaeger_binary.sh** | WORKING | Downloads `jaeger-all-in-one` to `./bin/`; optional for OTLP mode without Docker |
 
 ---
 
@@ -152,8 +156,10 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env — at minimum set OPENAI_API_KEY
 
-# 3. Start mock infrastructure
-docker-compose up -d
+# 3. Start the demo (Docker optional — auto-detected)
+./start_demo.sh
+# Or explicitly no-Docker:
+./start_demo_nodocker.sh
 
 # 4. Run tests (all non-live tests pass without credentials)
 python3.11 -m pytest tests/ -v
@@ -162,4 +168,4 @@ python3.11 -m pytest tests/ -v
 python demo_runner.py --scenario 1
 ```
 
-Minimum viable demo requires only `OPENAI_API_KEY`. Everything else uses mock/embedded fallbacks.
+Minimum viable demo requires only `OPENAI_API_KEY`. Everything else uses mock/embedded fallbacks. Docker is optional.

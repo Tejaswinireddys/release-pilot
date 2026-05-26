@@ -26,6 +26,12 @@ htmlcov/
 /tmp/release_pilot_pages/
 release_pilot_pages/
 
+# Trace output from OTEL file mode — generated at runtime, not source
+traces/
+
+# Optional Jaeger binary downloaded by scripts/install_jaeger_binary.sh
+bin/
+
 # Embedding / vector cache
 *.faiss
 *.index

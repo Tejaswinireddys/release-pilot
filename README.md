@@ -13,7 +13,8 @@ Release Pilot is a 5-agent AI system that takes over the moment a pull request i
 | **Real-time web dashboard** | FastAPI + vanilla-JS WebSocket UI on port 9100; 5 agent cards, safety strip, live event log, Confluence preview, approval button |
 | **Live Confluence publishing** | Set `INTEGRATION_CONFLUENCE_MODE=live` to publish real pages via Confluence Cloud REST API v2; falls back to local Markdown on any failure |
 | **Live GitHub PR diffs** | Set `INTEGRATION_GITHUB_MODE=live` to fetch real PR diffs from the GitHub REST API; falls back to fixture diff on any failure |
-| **Mock-by-design: AWS + Harness** | CloudWatch and ECS are served by a local FastAPI mock (scenario-driven); Harness is a deterministic mock — deliberate, not a gap |
+| **Live AWS CloudWatch** | Set `INTEGRATION_AWS_MODE=live` for real SLO metrics via boto3; sandbox-scoped + dry-run by default; falls back to mock on any error |
+| **Live Harness pipelines** | Set `INTEGRATION_HARNESS_MODE=live` for real pipeline execution via Harness REST API; sandbox-scoped, OPA-gated, `SAFETY_ALLOW_LIVE_DEPLOYS=false` dry-run by default |
 | **Frozen audit trail** | `AuditPacket` is a frozen Pydantic model; SHA-256 `audit_trail_hash` computed at attestation time and embedded in every Confluence page |
 | **OpenTelemetry tracing** | GenAI spans for every agent invocation, LLM call, and tool call; `trace_id` propagated through every A2A message |
 
@@ -165,6 +166,9 @@ All env vars the code reads today, grouped by subsystem. Variables marked **No**
 |----------|--------|---------|---------|
 | `INTEGRATION_CONFLUENCE_MODE` | `mock` \| `live` | `mock` | Enable real Confluence REST API publishing |
 | `INTEGRATION_GITHUB_MODE` | `mock` \| `live` | `mock` | Enable real GitHub REST API diff fetch |
+| `INTEGRATION_AWS_MODE` | `mock` \| `live` | `mock` | Enable real CloudWatch metrics for SLO Sentinel |
+| `INTEGRATION_HARNESS_MODE` | `mock` \| `live` | `mock` | Enable real Harness pipeline execution |
+| `SAFETY_ALLOW_LIVE_DEPLOYS` | `false` \| `true` | `false` | When false (default), AWS + Harness live modes dry-run (validate but do not execute) |
 
 ### LLM
 
@@ -197,14 +201,24 @@ All env vars the code reads today, grouped by subsystem. Variables marked **No**
 | `CONFLUENCE_PARENT_PAGE_ID` | No | — | Numeric parent page ID; creates at space root if blank |
 | `ATLASSIAN_MCP_URL` | No | `http://localhost:9090` | Legacy: Atlassian Rovo MCP server URL |
 
-### OPA, AWS mock, Harness
+### OPA, AWS, Harness
 
 | Variable | Required for live? | Default | Purpose |
 |----------|--------------------|---------|---------|
 | `OPA_URL` | No | `http://localhost:8181` | Live OPA server; embedded Rego used when unreachable |
-| `AWS_MOCK_URL` | No | `http://localhost:8080` | Mock AWS MCP server URL |
-| `HARNESS_BASE_URL` | No | `http://localhost:9001` | Harness API base (mock-only; not a real deployment target) |
-| `HARNESS_API_KEY` | No | `mock-key` | Harness API key (mock-only) |
+| `AWS_MOCK_URL` | No | `http://localhost:8080` | Mock AWS server URL (used when `INTEGRATION_AWS_MODE=mock`) |
+| `AWS_ACCESS_KEY_ID` | When AWS live | — | IAM key for CloudWatch reads |
+| `AWS_SECRET_ACCESS_KEY` | When AWS live | — | IAM secret for CloudWatch reads |
+| `AWS_REGION` | When AWS live | `us-east-1` | AWS region |
+| `AWS_SANDBOX_CLUSTER` | When AWS live | — | ECS cluster name; scopes which CloudWatch dimensions are queried |
+| `AWS_SANDBOX_SERVICE` | When AWS live | — | ECS service name; raises `SandboxViolationError` if request targets another service |
+| `HARNESS_BASE_URL` | When Harness live | `https://app.harness.io` | Harness API base URL |
+| `HARNESS_API_KEY` | When Harness live | — | Personal Access Token or Service Account token |
+| `HARNESS_ACCOUNT_ID` | When Harness live | — | Harness account identifier |
+| `HARNESS_ORG_ID` | When Harness live | `default` | Harness organisation identifier |
+| `HARNESS_PROJECT_ID` | When Harness live | — | Harness project identifier |
+| `HARNESS_PIPELINE_ID` | When Harness live | — | Pipeline to execute on deploy |
+| `HARNESS_SANDBOX_PROJECT` | When Harness live | ← `HARNESS_PROJECT_ID` | Sandbox scope; raises `HarnessSandboxViolationError` if mismatched |
 
 ### Teams, telemetry, demo controls
 
@@ -231,13 +245,25 @@ All env vars the code reads today, grouped by subsystem. Variables marked **No**
 ./start_demo.sh
 ```
 
-This starts Jaeger, OPA, and Mock AWS via Docker Compose, seeds the RAG index and deployment memory, then launches the dashboard server on port 9100. When it prints "Release Pilot demo ready!", all services are up.
+This **auto-detects** whether Docker is available:
+
+- **Docker available:** starts Jaeger + OPA + Mock AWS via Docker Compose.
+- **No Docker:** starts Mock AWS directly as a Python process, uses OPA embedded mode, and writes traces to `./traces/last_run.txt` (or OTLP to Jaeger if `jaeger-all-in-one` is on PATH).
+
+The ready message lists exactly which mode each component is using:
 
 ```
+  OPA:        embedded (opa binary; auto-fallback — no server needed)
+  Telemetry:  file    (traces/last_run.txt after each run)
+  Mock AWS:   python  (http://localhost:8080)
   Dashboard:  http://localhost:9100
-  Jaeger UI:  http://localhost:16686
-  OPA:        http://localhost:8181
-  Mock AWS:   http://localhost:8080/health
+  Traces:     ./traces/last_run.txt
+```
+
+To skip auto-detection and force the no-Docker path:
+
+```bash
+./start_demo_nodocker.sh
 ```
 
 ### 2. Browser dashboard (recommended)
@@ -303,6 +329,72 @@ curl -X POST http://localhost:8080/scenario/load \
 
 ---
 
+## Running Without Docker
+
+The entire project runs without Docker. No Docker, no OPA server, no Jaeger collector required.
+
+### How it works
+
+| Component | With Docker | Without Docker |
+|-----------|-------------|----------------|
+| **OPA** | Server at `localhost:8181` | Embedded `opa eval` subprocess — same Rego file, zero configuration |
+| **Mock AWS** | Docker container | `python src/tools/aws_mock_server.py` — plain FastAPI on port 8080 |
+| **Jaeger / traces** | Docker container at `localhost:16686` | File mode: `./traces/last_run.txt` + `./traces/release_pilot_traces.jsonl` |
+
+Auto-detection is built into `start_demo.sh`: it checks `docker info` at startup and picks the right path silently.
+
+### Telemetry modes
+
+Set `OTEL_MODE` to control where spans go (default: `auto`):
+
+| Mode | Behaviour |
+|------|-----------|
+| `auto` | TCP-probe `OTEL_EXPORTER_OTLP_ENDPOINT`; use `otlp` if reachable, `file` otherwise |
+| `otlp` | gRPC export to a running collector (Jaeger all-in-one, OTEL Collector, etc.) |
+| `file` | Write spans to `./traces/release_pilot_traces.jsonl` + summary to `./traces/last_run.txt` |
+| `console` | Print every span to stdout (useful for debugging) |
+
+### Reading `last_run.txt`
+
+After each pipeline run in file mode, `./traces/last_run.txt` shows the full trace in human-readable form:
+
+```
+========================================================================
+Release Pilot — Trace Summary
+========================================================================
+Release ID  : REL-a1b2c3d4
+Trace ID    : 68f9b17261034c61a649bfd57e1c2ea9
+Started     : 2026-05-26T12:51:26.912Z
+Completed   : 2026-05-26T12:51:56.731Z
+Duration    : 29.8s
+========================================================================
+
+SPAN TIMELINE
+────────────────────────────────────────────────────────────────────────
+[0000.00s]  pipeline.run                              29.8s
+[0000.10s]  risk_analyst.analyze                      8.2s
+             ├─ name                        : risk-analyst
+             ├─ model                       : gpt-4o
+             ├─ risk_level                  : HIGH
+             └─ pci_scope_touched           : True
+[0008.30s]  canary_orchestrator.deploy               15.6s
+...
+```
+
+### Optional: Jaeger binary (for the UI)
+
+To get the Jaeger trace UI without Docker, install the `jaeger-all-in-one` binary:
+
+```bash
+bash scripts/install_jaeger_binary.sh
+export PATH="$PWD/bin:$PATH"
+./start_demo.sh   # auto-detects the binary, switches to OTLP mode
+```
+
+The project runs fine in file mode without the binary — this is purely optional.
+
+---
+
 ## Connecting Real Data
 
 A single env flag controls whether each integration calls a real external API or uses a local mock. The default for every integration is `mock` — the project runs without any credentials.
@@ -313,10 +405,20 @@ A single env flag controls whether each integration calls a real external API or
 |-------------|-----------|---------|--------------------------|
 | **Confluence** | `INTEGRATION_CONFLUENCE_MODE` | `mock` | Release Scribe publishes to real Confluence Cloud via REST API v2 |
 | **GitHub** | `INTEGRATION_GITHUB_MODE` | `mock` | Risk Analyst fetches real PR diffs from GitHub REST API |
-| **AWS (CloudWatch / ECS)** | — | Mock by design | Not configurable — real infra is deliberately out of scope |
-| **Harness** | — | Mock by design | Not configurable — real infra is deliberately out of scope |
+| **AWS CloudWatch** | `INTEGRATION_AWS_MODE` | `mock` | SLO Sentinel reads real CloudWatch metrics via boto3 |
+| **Harness** | `INTEGRATION_HARNESS_MODE` | `mock` | Canary Orchestrator triggers real Harness pipeline executions |
 
-AWS and Harness are permanently mocked. Release Pilot is a safety and compliance layer, not a deployment executor. The mock layer is fully realistic (scenario-driven) for demo purposes.
+### Safety model for AWS and Harness
+
+Before any live mutating call, two guards run in sequence:
+
+1. **Sandbox guard** — the resource being targeted (ECS service, Harness project) must match the configured sandbox identifier. Any mismatch raises `SandboxViolationError` / `HarnessSandboxViolationError` and halts execution immediately.
+
+2. **Dry-run guard** — `SAFETY_ALLOW_LIVE_DEPLOYS` defaults to `false`. In dry-run mode the client authenticates and validates the call, logs exactly what it *would* do, but executes no mutating action. Set to `true` only after verifying sandbox credentials.
+
+3. **OPA gate** — every deploy and rollback still passes through `OPAClient.check()` before reaching the live client. A policy denial halts execution regardless of mode.
+
+On any live API failure the client falls back to mock behaviour and logs a warning. The pipeline never crashes.
 
 ### Enable real Confluence publishing
 
@@ -357,15 +459,73 @@ This prints the PR title, author, changed files, and diff size. On success, set 
 
 **Failure behaviour:** on any error, the Risk Analyst logs a warning and falls back to the fixture diff. The pipeline continues.
 
+### Enable real AWS CloudWatch metrics
+
+```bash
+INTEGRATION_AWS_MODE=live
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+AWS_SANDBOX_CLUSTER=my-ecs-cluster   # scope CloudWatch reads to this cluster
+AWS_SANDBOX_SERVICE=my-ecs-service   # scope reads to this service
+```
+
+Minimum IAM permissions: `cloudwatch:GetMetricData` + `cloudwatch:GetMetricStatistics` (read-only; no ECS or deployment permissions needed).
+
+**Verify credentials first:**
+
+```bash
+source .env && python3 scripts/check_aws.py
+```
+
+**Failure behaviour:** on any CloudWatch error, SLO Sentinel returns an empty metrics dict and the LLM classifies conservatively (ESCALATE). The pipeline never crashes.
+
+### Enable real Harness pipeline execution
+
+```bash
+INTEGRATION_HARNESS_MODE=live
+HARNESS_API_KEY=pat.your-token...
+HARNESS_ACCOUNT_ID=your-account-id
+HARNESS_ORG_ID=default
+HARNESS_PROJECT_ID=my-project
+HARNESS_PIPELINE_ID=canary-deploy
+HARNESS_SANDBOX_PROJECT=my-project   # must match PROJECT_ID for sandbox guard
+
+# Keep false until you have verified everything works in dry-run:
+SAFETY_ALLOW_LIVE_DEPLOYS=false
+```
+
+**Verify credentials first:**
+
+```bash
+source .env && python3 scripts/check_harness.py
+```
+
+This fetches the pipeline definition and prints the safety model status.
+
+**Failure behaviour:** on any Harness API error, the client falls back to mock responses and logs a warning. The pipeline continues.
+
+### Check all integrations at once
+
+```bash
+source .env && python3 scripts/check_all_integrations.py
+```
+
+Prints a summary table of every integration's mode and credential status without making any API calls.
+
 ### `config/integrations.py` — single source of truth
 
 All agents import mode flags from `config/integrations.py` rather than reading `os.environ` directly:
 
 ```python
-from config.integrations import confluence_is_live, github_is_live
+from config.integrations import (
+    confluence_is_live, github_is_live,
+    aws_is_live, harness_is_live,
+    safety_allow_live_deploys, get_sandbox_config,
+)
 ```
 
-Override in tests: `os.environ["INTEGRATION_CONFLUENCE_MODE"] = "live"` before importing the agent.
+Override in tests: `os.environ["INTEGRATION_AWS_MODE"] = "live"` before importing the agent.
 
 ---
 
@@ -509,15 +669,19 @@ opa run --server --addr :8181 policies/release_guardrails.rego
 
 ---
 
-**4. Docker not running / `docker-compose up` fails**
+**4. Docker not installed or daemon not running**
 
-Start Docker Desktop, then verify:
+`start_demo.sh` auto-detects this and switches to the no-Docker path automatically — no action required. If you want to be explicit:
 
 ```bash
-docker info
-docker-compose logs jaeger
-docker-compose logs opa
-docker-compose logs aws-mock
+./start_demo_nodocker.sh
+```
+
+If you do have Docker and just need to restart the daemon, start Docker Desktop then:
+
+```bash
+docker info          # verify daemon is running
+docker-compose up -d # bring up Jaeger + OPA + Mock AWS
 ```
 
 ---
